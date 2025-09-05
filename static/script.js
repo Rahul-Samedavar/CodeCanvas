@@ -347,16 +347,28 @@ document.addEventListener("DOMContentLoaded", () => {
 
   function updateUIFromStream(fullText) {
     const { analysis, changes, instructions, html } = parseFullResponse(fullText)
+
     if (analysis) {
       analysisContainer.classList.remove("hidden")
+      analysisContainer.classList.add("thinking")
       analysisContainer.open = true
       aiAnalysis.innerHTML = marked.parse(analysis)
+      aiAnalysis.classList.add("partial")
+
+      // After a delay, remove partial class and close the details
+      setTimeout(() => {
+        aiAnalysis.classList.remove("partial")
+        analysisContainer.classList.remove("thinking")
+        analysisContainer.open = false
+      }, 2000)
     }
+
     if (changes) {
       changesContainer.classList.remove("hidden")
-      changesContainer.open = true
       summaryOfChanges.innerHTML = marked.parse(changes)
+      changesContainer.open = false
     }
+
     if (instructions) {
       instructionsContainer.classList.remove("hidden")
       gameInstructions.innerHTML = marked.parse(instructions)
@@ -411,13 +423,13 @@ document.addEventListener("DOMContentLoaded", () => {
     if (version.analysis) {
       analysisContainer.classList.remove("hidden")
       aiAnalysis.innerHTML = marked.parse(version.analysis)
-      analysisContainer.open = true
+      analysisContainer.open = false
     }
 
     if (version.changes) {
       changesContainer.classList.remove("hidden")
       summaryOfChanges.innerHTML = marked.parse(version.changes)
-      changesContainer.open = true
+      changesContainer.open = false
     }
 
     if (version.instructions) {

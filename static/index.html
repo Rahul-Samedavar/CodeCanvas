@@ -145,16 +145,6 @@
 
                 <!-- Modification Panel -->
                 <div id="modification-panel" class="panel modification-panel glass-effect hidden">
-                    <!-- Version History -->
-                    <div id="version-history-controls" class="version-history hidden">
-                        <div class="panel-header">
-                            <h3><i class="fas fa-history"></i> Version History</h3>
-                        </div>
-                        <div class="panel-content">
-                            <select id="version-history-select" class="select-input"></select>
-                        </div>
-                    </div>
-
                     <div class="panel-header">
                         <h3><i class="fas fa-edit"></i> Modify</h3>
                     </div>
@@ -173,12 +163,6 @@
                             <button id="modify-btn" class="btn btn-primary pulse-on-hover">
                                 <i class="fas fa-sync-alt"></i> Apply Changes
                             </button>
-                            <button id="download-btn" class="btn btn-secondary">
-                                <i class="fas fa-download"></i> Download
-                            </button>
-                            <button id="open-tab-btn" class="btn btn-secondary">
-                                <i class="fas fa-external-link-alt"></i> Open Tab
-                            </button>
                         </div>
                     </div>
                 </div>
@@ -195,19 +179,19 @@
 
                 <!-- Info Panels -->
                 <div class="info-panels">
-                    <details id="analysis-container" class="info-panel glass-effect hidden">
+                    <details id="analysis-container" class="info-panel info-panel-dull glass-effect hidden">
                         <summary class="info-header">
                             <i class="fas fa-brain"></i>
-                            <span>AI Analysis</span>
+                            <span>AI Thoughts</span>
                             <i class="fas fa-chevron-down"></i>
                         </summary>
                         <div id="ai-analysis" class="info-content"></div>
                     </details>
 
-                    <details id="changes-container" class="info-panel glass-effect hidden">
+                    <details id="changes-container" class="info-panel info-panel-dull glass-effect hidden">
                         <summary class="info-header">
                             <i class="fas fa-list-ul"></i>
-                            <span>Changes Made</span>
+                            <span>Changes Summary</span>
                             <i class="fas fa-chevron-down"></i>
                         </summary>
                         <div id="summary-of-changes" class="info-content"></div>
@@ -240,12 +224,23 @@
                 </div>
                 <!-- Moved download and open buttons to content header with SVG icons -->
                 <div class="content-actions">
+                    <!-- Version History moved from sidebar -->
+                    <div id="version-history-controls" class="version-history-header-compact hidden">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M3 3v5h5"/>
+                            <path d="M3.05 13A9 9 0 1 0 6 5.3L3 8"/>
+                            <path d="M12 7v5l4 2"/>
+                        </svg>
+                        <select id="version-history-select" class="select-input-header"></select>
+                    </div>
+                    
                     <button id="copy-code-btn" class="action-btn" title="Copy Code">
                         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                             <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
                             <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
                         </svg>
                     </button>
+                    <!-- Moved download button from sidebar to header -->
                     <button id="download-btn" class="action-btn" title="Download Code">
                         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                             <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
@@ -253,9 +248,10 @@
                             <line x1="12" y1="15" x2="12" y2="3"/>
                         </svg>
                     </button>
+                    <!-- Moved open tab button from sidebar to header -->
                     <button id="open-tab-btn" class="action-btn" title="Open in New Window">
                         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <path d="M18 13v6a2 2 0 0 0-2 2H5a2 2 0 0 0-2-2V8a2 2 0 0 1 2-2h6"/>
+                            <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
                             <polyline points="15,3 21,3 21,9"/>
                             <line x1="10" y1="14" x2="21" y2="3"/>
                         </svg>
