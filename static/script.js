@@ -31,7 +31,6 @@ document.addEventListener("DOMContentLoaded", () => {
   const consoleContainer = document.getElementById("console-container")
   const consoleOutput = document.getElementById("console-output")
 
-  const followUpPanel = document.getElementById("follow-up-panel")
   const followUpInput = document.getElementById("follow-up-input")
   const followUpBtn = document.getElementById("follow-up-btn")
   const followUpSpinner = document.getElementById("follow-up-spinner")
@@ -40,6 +39,14 @@ document.addEventListener("DOMContentLoaded", () => {
 
   const versionHistoryControls = document.getElementById("version-history-controls")
   const versionHistorySelect = document.getElementById("version-history-select")
+
+  const sessionBtn = document.getElementById("session-btn")
+  const sessionPopup = document.getElementById("session-popup")
+  const sessionPopupClose = document.getElementById("session-popup-close")
+  const followupFloat = document.getElementById("followup-float")
+  const followupBtn = document.getElementById("followup-btn")
+  const followupPopup = document.getElementById("followup-popup")
+  const followupPopupClose = document.getElementById("followup-popup-close")
 
   // Session Management Selectors
   const sessionSelect = document.getElementById("session-select")
@@ -59,6 +66,128 @@ document.addEventListener("DOMContentLoaded", () => {
   let versionHistory = []
   let currentSessionId = null
   const SESSIONS_STORAGE_KEY = "CodeCanvasSessions"
+
+  function initParticleBackground() {
+    const canvas = document.getElementById("particle-canvas")
+    const ctx = canvas.getContext("2d")
+
+    function resizeCanvas() {
+      canvas.width = window.innerWidth
+      canvas.height = window.innerHeight
+    }
+
+    resizeCanvas()
+    window.addEventListener("resize", resizeCanvas)
+
+    const particles = []
+    const particleCount = 50
+
+    class Particle {
+      constructor() {
+        this.x = Math.random() * canvas.width
+        this.y = Math.random() * canvas.height
+        this.vx = (Math.random() - 0.5) * 0.5
+        this.vy = (Math.random() - 0.5) * 0.5
+        this.size = Math.random() * 2 + 1
+        this.opacity = Math.random() * 0.5 + 0.2
+      }
+
+      update() {
+        this.x += this.vx
+        this.y += this.vy
+
+        if (this.x < 0 || this.x > canvas.width) this.vx *= -1
+        if (this.y < 0 || this.y > canvas.height) this.vy *= -1
+      }
+
+      draw() {
+        ctx.save()
+        ctx.globalAlpha = this.opacity
+        ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue("--primary")
+        ctx.beginPath()
+        ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2)
+        ctx.fill()
+        ctx.restore()
+      }
+    }
+
+    for (let i = 0; i < particleCount; i++) {
+      particles.push(new Particle())
+    }
+
+    function animate() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height)
+
+      particles.forEach((particle) => {
+        particle.update()
+        particle.draw()
+      })
+
+      // Draw connections
+      particles.forEach((particle, i) => {
+        particles.slice(i + 1).forEach((otherParticle) => {
+          const dx = particle.x - otherParticle.x
+          const dy = particle.y - otherParticle.y
+          const distance = Math.sqrt(dx * dx + dy * dy)
+
+          if (distance < 100) {
+            ctx.save()
+            ctx.globalAlpha = ((100 - distance) / 100) * 0.2
+            ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue("--primary")
+            ctx.lineWidth = 1
+            ctx.beginPath()
+            ctx.moveTo(particle.x, particle.y)
+            ctx.lineTo(otherParticle.x, otherParticle.y)
+            ctx.stroke()
+            ctx.restore()
+          }
+        })
+      })
+
+      requestAnimationFrame(animate)
+    }
+
+    animate()
+  }
+
+  function openPopup(popup) {
+    popup.classList.remove("hidden")
+    document.body.style.overflow = "hidden"
+  }
+
+  function closePopup(popup) {
+    popup.classList.add("hidden")
+    document.body.style.overflow = ""
+  }
+
+  // Session popup event listeners
+  sessionBtn.addEventListener("click", () => openPopup(sessionPopup))
+  sessionPopupClose.addEventListener("click", () => closePopup(sessionPopup))
+
+  // Follow-up popup event listeners
+  followupBtn.addEventListener("click", () => openPopup(followupPopup))
+  followupPopupClose.addEventListener("click", () => closePopup(followupPopup))
+
+  // Close popups when clicking overlay
+  sessionPopup.addEventListener("click", (e) => {
+    if (e.target === sessionPopup || e.target.classList.contains("popup-overlay")) {
+      closePopup(sessionPopup)
+    }
+  })
+
+  followupPopup.addEventListener("click", (e) => {
+    if (e.target === followupPopup || e.target.classList.contains("popup-overlay")) {
+      closePopup(followupPopup)
+    }
+  })
+
+  // Close popups with Escape key
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") {
+      closePopup(sessionPopup)
+      closePopup(followupPopup)
+    }
+  })
 
   // --- Theme Management ---
   function initTheme() {
@@ -361,7 +490,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     initialGenerationPanel.classList.remove("hidden")
     modificationPanel.classList.add("hidden")
-    followUpPanel.classList.add("hidden")
+    followupFloat.classList.add("hidden")
     versionHistoryControls.classList.add("hidden")
   }
 
@@ -397,6 +526,7 @@ document.addEventListener("DOMContentLoaded", () => {
     followUpOutputContainer.classList.remove("hidden")
     followUpOutput.innerHTML = ""
     streamResponse("/explain", { question: question, current_code: currentHtml }, followUpOutput)
+    // Don't close popup immediately to show the response
   })
 
   downloadBtn.addEventListener("click", () => {
@@ -527,7 +657,7 @@ document.addEventListener("DOMContentLoaded", () => {
   function showModificationPanel() {
     initialGenerationPanel.classList.add("hidden")
     modificationPanel.classList.remove("hidden")
-    followUpPanel.classList.remove("hidden")
+    followupFloat.classList.add("show")
   }
 
   function clearInfoPanels() {
@@ -541,6 +671,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // --- Initial Setup ---
   initTheme()
+  initParticleBackground()
   populateSessionDropdown()
 
   // Add some nice entrance animations

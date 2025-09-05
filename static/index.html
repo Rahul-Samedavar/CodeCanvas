@@ -5,11 +5,16 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>CodeCanvas - AI Code Generation Studio</title>
     <link rel="stylesheet" href="static/style.css">
-    <link rel="stylesheet" href="staic/globals.css">
+    <link rel="stylesheet" href="static/globals.css">
     <link href="https://fonts.googleapis.com/css2?family=Work+Sans:wght@400;600;700&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 </head>
 <body>
+    <!-- Particle Background -->
+    <div class="particle-background">
+        <canvas id="particle-canvas"></canvas>
+    </div>
+
     <!-- Header -->
     <header class="header">
         <div class="header-content">
@@ -18,6 +23,11 @@
                 <span>CodeCanvas</span>
             </div>
             <div class="header-actions">
+                <!-- Added session management button in navbar -->
+                <button class="session-btn" id="session-btn">
+                    <i class="fas fa-folder-open"></i>
+                    <span>Sessions</span>
+                </button>
                 <button class="theme-toggle" id="theme-toggle">
                     <i class="fas fa-moon"></i>
                 </button>
@@ -25,48 +35,54 @@
         </div>
     </header>
 
+    <!-- Session Management Popup -->
+    <div class="session-popup hidden" id="session-popup">
+        <div class="popup-overlay"></div>
+        <div class="popup-content">
+            <div class="popup-header">
+                <h3><i class="fas fa-folder-open"></i> Session Management</h3>
+                <button class="popup-close" id="session-popup-close">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="popup-body">
+                <select id="session-select" class="select-input">
+                    <option value="">No sessions found</option>
+                </select>
+                <div class="button-row">
+                    <button id="load-session-btn" class="btn btn-secondary">
+                        <i class="fas fa-upload"></i> Load
+                    </button>
+                    <button id="delete-session-btn" class="btn btn-destructive">
+                        <i class="fas fa-trash"></i> Delete
+                    </button>
+                </div>
+                <div class="input-group">
+                    <input type="text" id="session-name-input" class="text-input" placeholder="Session name...">
+                    <button id="save-session-btn" class="btn btn-accent">
+                        <i class="fas fa-save"></i> Save
+                    </button>
+                </div>
+                <button id="new-session-btn" class="btn btn-outline">
+                    <i class="fas fa-plus"></i> New Session
+                </button>
+            </div>
+        </div>
+    </div>
+
     <!-- Main Container -->
     <div class="main-container">
         <!-- Sidebar -->
         <aside class="sidebar">
             <div class="sidebar-content">
-                <!-- Session Management -->
-                <div class="panel session-panel">
-                    <div class="panel-header">
-                        <h3><i class="fas fa-folder-open"></i> Sessions</h3>
-                    </div>
-                    <div class="panel-content">
-                        <select id="session-select" class="select-input">
-                            <option value="">No sessions found</option>
-                        </select>
-                        <div class="button-row">
-                            <button id="load-session-btn" class="btn btn-secondary">
-                                <i class="fas fa-upload"></i> Load
-                            </button>
-                            <button id="delete-session-btn" class="btn btn-destructive">
-                                <i class="fas fa-trash"></i> Delete
-                            </button>
-                        </div>
-                        <div class="input-group">
-                            <input type="text" id="session-name-input" class="text-input" placeholder="Session name...">
-                            <button id="save-session-btn" class="btn btn-accent">
-                                <i class="fas fa-save"></i> Save
-                            </button>
-                        </div>
-                        <button id="new-session-btn" class="btn btn-outline">
-                            <i class="fas fa-plus"></i> New Session
-                        </button>
-                    </div>
-                </div>
-
                 <!-- Initial Generation -->
-                <div id="initial-generation" class="panel generation-panel">
+                <div id="initial-generation" class="panel generation-panel glass-effect">
                     <div class="panel-header">
                         <h3><i class="fas fa-magic"></i> Create</h3>
                     </div>
                     <div class="panel-content">
                         <textarea id="prompt-input" class="textarea-input" placeholder="Describe your idea... e.g., A bouncing ball simulation, interactive data visualization, animated landing page..."></textarea>
-                        <button id="generate-btn" class="btn btn-primary btn-large">
+                        <button id="generate-btn" class="btn btn-primary btn-large pulse-on-hover">
                             <i class="fas fa-wand-magic-sparkles"></i>
                             Generate Code
                         </button>
@@ -74,13 +90,15 @@
                 </div>
 
                 <!-- Modification Panel -->
-                <div id="modification-panel" class="panel modification-panel hidden">
+                <div id="modification-panel" class="panel modification-panel glass-effect hidden">
                     <!-- Version History -->
                     <div id="version-history-controls" class="version-history hidden">
                         <div class="panel-header">
                             <h3><i class="fas fa-history"></i> Version History</h3>
                         </div>
-                        <select id="version-history-select" class="select-input"></select>
+                        <div class="panel-content">
+                            <select id="version-history-select" class="select-input"></select>
+                        </div>
                     </div>
 
                     <div class="panel-header">
@@ -98,7 +116,7 @@
                         </div>
 
                         <div class="button-grid">
-                            <button id="modify-btn" class="btn btn-primary">
+                            <button id="modify-btn" class="btn btn-primary pulse-on-hover">
                                 <i class="fas fa-sync-alt"></i> Apply Changes
                             </button>
                             <button id="download-btn" class="btn btn-secondary">
@@ -123,7 +141,7 @@
 
                 <!-- Info Panels -->
                 <div class="info-panels">
-                    <details id="analysis-container" class="info-panel hidden">
+                    <details id="analysis-container" class="info-panel glass-effect hidden">
                         <summary class="info-header">
                             <i class="fas fa-brain"></i>
                             <span>AI Analysis</span>
@@ -132,7 +150,7 @@
                         <div id="ai-analysis" class="info-content"></div>
                     </details>
 
-                    <details id="changes-container" class="info-panel hidden">
+                    <details id="changes-container" class="info-panel glass-effect hidden">
                         <summary class="info-header">
                             <i class="fas fa-list-ul"></i>
                             <span>Changes Made</span>
@@ -141,7 +159,7 @@
                         <div id="summary-of-changes" class="info-content"></div>
                     </details>
 
-                    <details id="instructions-container" class="info-panel hidden">
+                    <details id="instructions-container" class="info-panel glass-effect hidden">
                         <summary class="info-header">
                             <i class="fas fa-lightbulb"></i>
                             <span>Instructions</span>
@@ -150,39 +168,12 @@
                         <div id="game-instructions" class="info-content"></div>
                     </details>
                 </div>
-
-                <!-- Follow-up Panel -->
-                <div id="follow-up-panel" class="panel follow-up-panel hidden">
-                    <div class="panel-header">
-                        <h3><i class="fas fa-question-circle"></i> Ask AI</h3>
-                    </div>
-                    <div class="panel-content">
-                        <textarea id="follow-up-input" class="textarea-input" placeholder="Ask about the code... e.g., How does this work? Can you explain this function?"></textarea>
-                        <button id="follow-up-btn" class="btn btn-accent">
-                            <i class="fas fa-paper-plane"></i> Ask Question
-                        </button>
-                        
-                        <div id="follow-up-spinner" class="spinner-container hidden">
-                            <div class="spinner-small">
-                                <div class="spinner-ring"></div>
-                            </div>
-                            <p class="spinner-text">Thinking...</p>
-                        </div>
-                        
-                        <div id="follow-up-output-container" class="follow-up-output hidden">
-                            <div class="output-header">
-                                <i class="fas fa-robot"></i> AI Response
-                            </div>
-                            <div id="follow-up-output" class="output-content"></div>
-                        </div>
-                    </div>
-                </div>
             </div>
         </aside>
 
         <!-- Main Content -->
         <main class="main-content">
-            <div class="content-header">
+            <div class="content-header glass-effect">
                 <div class="view-tabs">
                     <button id="toggle-preview-btn" class="tab-btn active">
                         <i class="fas fa-eye"></i>
@@ -208,7 +199,7 @@
             <div class="content-body">
                 <!-- Code Editor -->
                 <div class="code-container hidden">
-                    <div class="code-editor-wrapper">
+                    <div class="code-editor-wrapper glass-effect">
                         <textarea id="code-editor" class="code-editor" spellcheck="false" placeholder="// AI-generated code will appear here...
 // Start by describing your idea in the sidebar!"></textarea>
                     </div>
@@ -216,14 +207,14 @@
 
                 <!-- Live Preview -->
                 <div class="preview-container">
-                    <div class="preview-wrapper">
+                    <div class="preview-wrapper glass-effect">
                         <iframe id="game-iframe" class="preview-iframe" 
                                 sandbox="allow-scripts allow-pointer-lock allow-same-origin" 
                                 title="Generated Visualization">
                         </iframe>
                         <div class="preview-placeholder">
                             <div class="placeholder-content">
-                                <i class="fas fa-palette"></i>
+                                <i class="fas fa-palette floating-icon"></i>
                                 <h3>Ready to Create</h3>
                                 <p>Describe your idea in the sidebar to get started with AI code generation</p>
                             </div>
@@ -232,6 +223,46 @@
                 </div>
             </div>
         </main>
+    </div>
+
+    <!-- Follow-up Floating Button and Popup -->
+    <div class="followup-float" id="followup-float">
+        <button class="followup-btn" id="followup-btn">
+            <i class="fas fa-question-circle"></i>
+        </button>
+        <div class="followup-tooltip">Ask AI</div>
+    </div>
+
+    <div class="followup-popup hidden" id="followup-popup">
+        <div class="popup-overlay"></div>
+        <div class="popup-content">
+            <div class="popup-header">
+                <h3><i class="fas fa-question-circle"></i> Ask AI</h3>
+                <button class="popup-close" id="followup-popup-close">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="popup-body">
+                <textarea id="follow-up-input" class="textarea-input" placeholder="Ask about the code... e.g., How does this work? Can you explain this function?"></textarea>
+                <button id="follow-up-btn" class="btn btn-accent pulse-on-hover">
+                    <i class="fas fa-paper-plane"></i> Ask Question
+                </button>
+                
+                <div id="follow-up-spinner" class="spinner-container hidden">
+                    <div class="spinner-small">
+                        <div class="spinner-ring"></div>
+                    </div>
+                    <p class="spinner-text">Thinking...</p>
+                </div>
+                
+                <div id="follow-up-output-container" class="follow-up-output hidden">
+                    <div class="output-header">
+                        <i class="fas fa-robot"></i> AI Response
+                    </div>
+                    <div id="follow-up-output" class="output-content"></div>
+                </div>
+            </div>
+        </div>
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
