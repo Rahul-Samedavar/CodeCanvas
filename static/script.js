@@ -1,321 +1,473 @@
-document.addEventListener('DOMContentLoaded', () => {
-    // --- Element Selectors ---
-    const promptInput = document.getElementById('prompt-input');
-    const generateBtn = document.getElementById('generate-btn');
-    const modificationInput = document.getElementById('modification-input');
-    const modifyBtn = document.getElementById('modify-btn');
-    const downloadBtn = document.getElementById('download-btn');
-    const openTabBtn = document.getElementById('open-tab-btn');
-    const copyCodeBtn = document.getElementById('copy-code-btn');
+document.addEventListener("DOMContentLoaded", () => {
+  // --- Element Selectors ---
+  const promptInput = document.getElementById("prompt-input")
+  const generateBtn = document.getElementById("generate-btn")
+  const modificationInput = document.getElementById("modification-input")
+  const modifyBtn = document.getElementById("modify-btn")
+  const downloadBtn = document.getElementById("download-btn")
+  const openTabBtn = document.getElementById("open-tab-btn")
+  const copyCodeBtn = document.getElementById("copy-code-btn")
 
-    const togglePreviewBtn = document.getElementById('toggle-preview-btn');
-    const toggleCodeBtn = document.getElementById('toggle-code-btn');
-    const refreshPreviewBtn = document.getElementById('refresh-preview-btn');
+  const togglePreviewBtn = document.getElementById("toggle-preview-btn")
+  const toggleCodeBtn = document.getElementById("toggle-code-btn")
+  const refreshPreviewBtn = document.getElementById("refresh-preview-btn")
 
-    const codeContainer = document.querySelector('.code-container');
-    const gameContainer = document.querySelector('.game-container');
-    const codeEditor = document.getElementById('code-editor');
-    const gameIframe = document.getElementById('game-iframe');
+  const codeContainer = document.querySelector(".code-container")
+  const previewContainer = document.querySelector(".preview-container")
+  const codeEditor = document.getElementById("code-editor")
+  const gameIframe = document.getElementById("game-iframe")
 
-    const initialGenerationPanel = document.getElementById('initial-generation');
-    const modificationPanel = document.getElementById('modification-panel');
-    const spinner = document.querySelector('.spinner-container');
+  const initialGenerationPanel = document.getElementById("initial-generation")
+  const modificationPanel = document.getElementById("modification-panel")
+  const spinner = document.querySelector(".spinner-container")
 
-    const analysisContainer = document.getElementById('analysis-container');
-    const aiAnalysis = document.getElementById('ai-analysis');
-    const changesContainer = document.getElementById('changes-container');
-    const summaryOfChanges = document.getElementById('summary-of-changes');
-    const instructionsContainer = document.getElementById('instructions-container');
-    const gameInstructions = document.getElementById('game-instructions');
+  const analysisContainer = document.getElementById("analysis-container")
+  const aiAnalysis = document.getElementById("ai-analysis")
+  const changesContainer = document.getElementById("changes-container")
+  const summaryOfChanges = document.getElementById("summary-of-changes")
+  const instructionsContainer = document.getElementById("instructions-container")
+  const gameInstructions = document.getElementById("game-instructions")
 
-    const consoleContainer = document.getElementById('console-container');
-    const consoleOutput = document.getElementById('console-output');
+  const consoleContainer = document.getElementById("console-container")
+  const consoleOutput = document.getElementById("console-output")
 
-    // UPDATED: Renamed from tutor elements
-    const followUpPanel = document.getElementById('follow-up-panel');
-    const followUpInput = document.getElementById('follow-up-input');
-    const followUpBtn = document.getElementById('follow-up-btn');
-    const followUpSpinner = document.getElementById('follow-up-spinner');
-    const followUpOutputContainer = document.getElementById('follow-up-output-container');
-    const followUpOutput = document.getElementById('follow-up-output');
+  const followUpPanel = document.getElementById("follow-up-panel")
+  const followUpInput = document.getElementById("follow-up-input")
+  const followUpBtn = document.getElementById("follow-up-btn")
+  const followUpSpinner = document.getElementById("follow-up-spinner")
+  const followUpOutputContainer = document.getElementById("follow-up-output-container")
+  const followUpOutput = document.getElementById("follow-up-output")
 
-    const versionHistoryControls = document.getElementById('version-history-controls');
-    const versionHistorySelect = document.getElementById('version-history-select');
+  const versionHistoryControls = document.getElementById("version-history-controls")
+  const versionHistorySelect = document.getElementById("version-history-select")
 
-    // --- State Variables ---
-    let promptHistory = [];
-    let consoleLogs = [];
-    let abortController = null;
-    let versionHistory = [];
+  // Session Management Selectors
+  const sessionSelect = document.getElementById("session-select")
+  const sessionNameInput = document.getElementById("session-name-input")
+  const loadSessionBtn = document.getElementById("load-session-btn")
+  const saveSessionBtn = document.getElementById("save-session-btn")
+  const deleteSessionBtn = document.getElementById("delete-session-btn")
+  const newSessionBtn = document.getElementById("new-session-btn")
 
-    // --- Core Functions ---
-    function cleanHtml(htmlString) {
-        return htmlString.replace(/^```html\s*/, '').replace(/\s*```$/, '').trim();
+  // Theme Toggle
+  const themeToggle = document.getElementById("theme-toggle")
+
+  // --- State Variables ---
+  let promptHistory = []
+  let consoleLogs = []
+  let abortController = null
+  let versionHistory = []
+  let currentSessionId = null
+  const SESSIONS_STORAGE_KEY = "CodeCanvasSessions"
+
+  // --- Theme Management ---
+  function initTheme() {
+    const savedTheme = localStorage.getItem("theme") || "light"
+    document.documentElement.setAttribute("data-theme", savedTheme)
+    updateThemeIcon(savedTheme)
+  }
+
+  function toggleTheme() {
+    const currentTheme = document.documentElement.getAttribute("data-theme")
+    const newTheme = currentTheme === "dark" ? "light" : "dark"
+    document.documentElement.setAttribute("data-theme", newTheme)
+    localStorage.setItem("theme", newTheme)
+    updateThemeIcon(newTheme)
+  }
+
+  function updateThemeIcon(theme) {
+    const icon = themeToggle.querySelector("i")
+    icon.className = theme === "dark" ? "fas fa-sun" : "fas fa-moon"
+  }
+
+  themeToggle.addEventListener("click", toggleTheme)
+
+  // --- Core Functions ---
+  function cleanHtml(htmlString) {
+    return htmlString
+      .replace(/^```html\s*/, "")
+      .replace(/\s*```$/, "")
+      .trim()
+  }
+
+  const marked = window.marked // Declare the marked variable
+
+  async function streamResponse(url, body, targetElement) {
+    setLoading(true, url)
+    if (url !== "/explain") {
+      setView("preview")
+      codeEditor.value = ""
+      clearInfoPanels()
+    }
+    let currentFullText = ""
+    if (abortController) abortController.abort()
+    abortController = new AbortController()
+    try {
+      const response = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+        signal: abortController.signal,
+      })
+      if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`)
+      const reader = response.body.getReader()
+      const decoder = new TextDecoder()
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        const chunk = decoder.decode(value, { stream: true })
+        currentFullText += chunk
+        if (targetElement) {
+          targetElement.innerHTML = marked.parse(currentFullText)
+        } else {
+          updateUIFromStream(currentFullText)
+        }
+      }
+      if (url !== "/explain") {
+        const finalData = parseFullResponse(currentFullText)
+        updateIframe(finalData.html)
+        saveVersion({ ...finalData, prompt: body.prompt })
+        showModificationPanel()
+      }
+    } catch (error) {
+      if (error.name === "AbortError") console.log("Fetch aborted.")
+      else {
+        console.error("Streaming failed:", error)
+        if (url !== "/explain") {
+          codeEditor.value = `Error: Failed to get response. Check console.`
+          setView("code")
+        } else {
+          followUpOutput.textContent = "Error: Could not get response."
+        }
+      }
+    } finally {
+      setLoading(false, url)
+      abortController = null
+    }
+  }
+
+  function parseFullResponse(fullText) {
+    const result = { analysis: "", changes: "", instructions: "", html: "" }
+    const analysisMatch = fullText.match(/\[ANALYSIS\]([\s\S]*?)\[END_ANALYSIS\]/)
+    if (analysisMatch) result.analysis = analysisMatch[1].trim()
+    const changesMatch = fullText.match(/\[CHANGES\]([\s\S]*?)\[END_CHANGES\]/)
+    if (changesMatch) result.changes = changesMatch[1].trim()
+    const instructionsMatch = fullText.match(/\[INSTRUCTIONS\]([\s\S]*?)\[END_INSTRUCTIONS\]/)
+    if (instructionsMatch) result.instructions = instructionsMatch[1].trim()
+    const htmlStartIndex = fullText.indexOf("[END_INSTRUCTIONS]")
+    if (htmlStartIndex !== -1) {
+      const potentialHtml = fullText.substring(htmlStartIndex + "[END_INSTRUCTIONS]".length).trim()
+      if (potentialHtml.startsWith("<!DOCTYPE html>") || potentialHtml.startsWith("<html")) {
+        result.html = cleanHtml(potentialHtml)
+      }
+    }
+    return result
+  }
+
+  function updateUIFromStream(fullText) {
+    const { analysis, changes, instructions, html } = parseFullResponse(fullText)
+    if (analysis) {
+      analysisContainer.classList.remove("hidden")
+      analysisContainer.open = true
+      aiAnalysis.innerHTML = marked.parse(analysis)
+    }
+    if (changes) {
+      changesContainer.classList.remove("hidden")
+      changesContainer.open = true
+      summaryOfChanges.innerHTML = marked.parse(changes)
+    }
+    if (instructions) {
+      instructionsContainer.classList.remove("hidden")
+      gameInstructions.innerHTML = marked.parse(instructions)
+      instructionsContainer.open = true
+    }
+    if (html) {
+      codeEditor.value = html
+    } else if (fullText.includes("[END_INSTRUCTIONS]")) {
+      codeEditor.value = "Waiting for HTML code..."
+    }
+  }
+
+  // --- Version History Functions ---
+  function saveVersion(versionData) {
+    const currentVersionIndex = versionHistory.findIndex((v) => v.prompt === promptHistory[promptHistory.length - 1])
+    if (currentVersionIndex > -1 && currentVersionIndex < versionHistory.length - 1) {
+      versionHistory = versionHistory.slice(0, currentVersionIndex + 1)
     }
 
-    async function streamResponse(url, body, targetElement) {
-        setLoading(true, url);
+    versionHistory.push(versionData)
+    promptHistory = versionHistory.map((v) => v.prompt)
+    updateVersionHistoryUI()
+  }
 
-        if (url !== '/explain') {
-            setView('preview');
-            codeEditor.value = '';
-            clearInfoPanels();
-        }
-
-        let currentFullText = '';
-        if (abortController) {
-            abortController.abort();
-        }
-        abortController = new AbortController();
-
-        try {
-            const response = await fetch(url, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(body),
-                signal: abortController.signal,
-            });
-
-            if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-
-            const reader = response.body.getReader();
-            const decoder = new TextDecoder();
-
-            while (true) {
-                const { done, value } = await reader.read();
-                if (done) break;
-
-                const chunk = decoder.decode(value, { stream: true });
-                currentFullText += chunk;
-                if (targetElement) {
-                    targetElement.innerHTML = marked.parse(currentFullText);
-                } else {
-                    updateUIFromStream(currentFullText);
-                }
-            }
-            if (url !== '/explain') {
-                const finalData = parseFullResponse(currentFullText);
-                updateIframe(finalData.html);
-                saveVersion({ ...finalData, prompt: body.prompt });
-                showModificationPanel();
-            }
-
-        } catch (error) {
-            if (error.name === 'AbortError') {
-                console.log('Fetch aborted by user.');
-            } else {
-                console.error('Streaming failed:', error);
-                if (url !== '/explain') {
-                    codeEditor.value = `Error: Failed to get response from server. Check console for details.`;
-                    setView('code');
-                } else {
-                     followUpOutput.textContent = 'Error: Could not get response from AI.'
-                }
-            }
-        } finally {
-            setLoading(false, url);
-            abortController = null;
-        }
+  function updateVersionHistoryUI() {
+    if (versionHistory.length > 0) {
+      versionHistoryControls.classList.remove("hidden")
+    } else {
+      versionHistoryControls.classList.add("hidden")
     }
 
-    function parseFullResponse(fullText) {
-        const result = { analysis: '', changes: '', instructions: '', html: '' };
-        
-        const analysisMatch = fullText.match(/\[ANALYSIS\]([\s\S]*?)\[END_ANALYSIS\]/);
-        if (analysisMatch) result.analysis = analysisMatch[1].trim();
-        
-        const changesMatch = fullText.match(/\[CHANGES\]([\s\S]*?)\[END_CHANGES\]/);
-        if (changesMatch) result.changes = changesMatch[1].trim();
+    versionHistorySelect.innerHTML = ""
+    versionHistory.forEach((version, index) => {
+      const option = document.createElement("option")
+      option.value = index
+      const promptSnippet = version.prompt.length > 50 ? version.prompt.substring(0, 47) + "..." : version.prompt
+      option.textContent = `V${index + 1}: ${promptSnippet}`
+      versionHistorySelect.prepend(option)
+    })
 
-        const instructionsMatch = fullText.match(/\[INSTRUCTIONS\]([\s\S]*?)\[END_INSTRUCTIONS\]/);
-        if (instructionsMatch) result.instructions = instructionsMatch[1].trim();
+    versionHistorySelect.value = versionHistory.length - 1
+  }
 
-        const htmlStartIndex = fullText.indexOf('[END_INSTRUCTIONS]');
-        if (htmlStartIndex !== -1) {
-            const potentialHtml = fullText.substring(htmlStartIndex + '[END_INSTRUCTIONS]'.length).trim();
-            if (potentialHtml.startsWith('<!DOCTYPE html>') || potentialHtml.startsWith('<html')) {
-                 result.html = cleanHtml(potentialHtml);
-            }
-        }
-        return result;
+  function loadVersion(index) {
+    const version = versionHistory[index]
+    if (!version) return
+
+    codeEditor.value = version.html || ""
+    updateIframe(version.html || "")
+    clearInfoPanels()
+
+    if (version.analysis) {
+      analysisContainer.classList.remove("hidden")
+      aiAnalysis.innerHTML = marked.parse(version.analysis)
+      analysisContainer.open = true
     }
 
-    function updateUIFromStream(fullText) {
-        const { analysis, changes, instructions, html } = parseFullResponse(fullText);
-
-        if (analysis) {
-            analysisContainer.classList.remove('hidden');
-            analysisContainer.open = true; // NEW: Ensure it's expanded
-            aiAnalysis.innerHTML = marked.parse(analysis);
-        }
-        if (changes) {
-            changesContainer.classList.remove('hidden');
-            changesContainer.open = true; // NEW: Ensure it's expanded
-            summaryOfChanges.innerHTML = marked.parse(changes);
-        }
-        if (instructions) {
-            instructionsContainer.classList.remove('hidden');
-            instructionsContainer.open = true; // NEW: Ensure it's expanded
-            gameInstructions.innerHTML = marked.parse(instructions);
-        }
-        if (html) {
-            codeEditor.value = html;
-        } else if (fullText.includes('[END_INSTRUCTIONS]')) {
-            codeEditor.value = "Waiting for HTML code...";
-        }
-    }
-    
-    // --- Version History Functions ---
-    function saveVersion(versionData) {
-        versionHistory.push(versionData);
-        promptHistory.push(versionData.prompt);
-        updateVersionHistoryUI();
-    }
-    
-    function updateVersionHistoryUI() {
-        versionHistoryControls.classList.remove('hidden');
-        versionHistorySelect.innerHTML = '';
-        
-        versionHistory.forEach((version, index) => {
-            const option = document.createElement('option');
-            option.value = index;
-            const promptSnippet = version.prompt.length > 50 ? version.prompt.substring(0, 47) + '...' : version.prompt;
-            option.textContent = `V${index + 1}: ${promptSnippet}`;
-            versionHistorySelect.prepend(option);
-        });
-        
-        versionHistorySelect.value = versionHistory.length - 1;
+    if (version.changes) {
+      changesContainer.classList.remove("hidden")
+      summaryOfChanges.innerHTML = marked.parse(version.changes)
+      changesContainer.open = true
     }
 
-    function loadVersion(index) {
-        const version = versionHistory[index];
-        if (!version) return;
-
-        codeEditor.value = version.html;
-        updateIframe(version.html);
-
-        clearInfoPanels();
-        if(version.analysis) {
-            analysisContainer.classList.remove('hidden');
-            analysisContainer.open = true; // NEW: Ensure it's expanded
-            aiAnalysis.innerHTML = marked.parse(version.analysis);
-        }
-        if(version.changes) {
-            changesContainer.classList.remove('hidden');
-            changesContainer.open = true; // NEW: Ensure it's expanded
-            summaryOfChanges.innerHTML = marked.parse(version.changes);
-        }
-        if(version.instructions) {
-            instructionsContainer.classList.remove('hidden');
-            instructionsContainer.open = true; // NEW: Ensure it's expanded
-            gameInstructions.innerHTML = marked.parse(version.instructions);
-        }
-        
-        promptHistory = versionHistory.slice(0, index + 1).map(v => v.prompt);
-    }
-    
-    versionHistorySelect.addEventListener('change', (e) => {
-        const selectedIndex = parseInt(e.target.value, 10);
-        loadVersion(selectedIndex);
-    });
-
-    // --- Event Handlers ---
-    generateBtn.addEventListener('click', () => {
-        const prompt = promptInput.value.trim();
-        if (!prompt) return alert('Please enter an idea!');
-        versionHistory = [];
-        promptHistory = [];
-        streamResponse('/generate', { prompt });
-    });
-
-    modifyBtn.addEventListener('click', () => {
-        const prompt = modificationInput.value.trim();
-        if (!prompt) return alert('Please describe your modification!');
-        const newPromptHistory = [...promptHistory, prompt];
-
-        const currentHtml = codeEditor.value;
-        if (!currentHtml) return alert('There is no code to modify!');
-
-        const logs = consoleLogs.join('\n');
-        streamResponse('/modify', {
-            prompt,
-            current_code: currentHtml,
-            console_logs: logs,
-            prompt_history: newPromptHistory
-        });
-    });
-    
-    // UPDATED: Renamed from tutorBtn
-    followUpBtn.addEventListener('click', () => {
-        const question = followUpInput.value.trim();
-        if (!question) return alert('Please ask a question!');
-        const currentHtml = codeEditor.value;
-        if (!currentHtml) return alert('There is no code to ask about!');
-
-        followUpOutputContainer.classList.remove('hidden');
-        followUpOutput.innerHTML = '';
-        streamResponse('/explain', { question: question, current_code: currentHtml }, followUpOutput);
-    });
-
-    downloadBtn.addEventListener('click', () => {
-        const html = codeEditor.value;
-        if (!html) return alert('No code to download!');
-        const blob = new Blob([html], { type: 'text/html' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = 'ai_generated_visualization.html';
-        a.click();
-        URL.revokeObjectURL(url);
-    });
-
-    openTabBtn.addEventListener('click', () => {
-        const html = codeEditor.value;
-        if (!html) return alert('No code to open!');
-        const blob = new Blob([html], { type: 'text/html' });
-        const url = URL.createObjectURL(blob);
-        window.open(url, '_blank');
-    });
-
-    copyCodeBtn.addEventListener('click', async () => {
-        const code = codeEditor.value;
-        if (!code) return;
-        try {
-            await navigator.clipboard.writeText(code);
-            copyCodeBtn.textContent = 'Copied!';
-            setTimeout(() => { copyCodeBtn.textContent = 'Copy Code'; }, 2000);
-        } catch (err) {
-            console.error('Failed to copy text: ', err);
-        }
-    });
-
-    refreshPreviewBtn.addEventListener('click', () => {
-        updateIframe(codeEditor.value);
-        setView('preview');
-    });
-
-    // --- UI Helper Functions ---
-    function setView(view) {
-        if (view === 'preview') {
-            gameContainer.classList.remove('hidden');
-            codeContainer.classList.add('hidden');
-            togglePreviewBtn.classList.add('active');
-            toggleCodeBtn.classList.remove('active');
-            refreshPreviewBtn.classList.add('hidden');
-        } else { // 'code'
-            gameContainer.classList.add('hidden');
-            codeContainer.classList.remove('hidden');
-            togglePreviewBtn.classList.remove('active');
-            toggleCodeBtn.classList.add('active');
-            refreshPreviewBtn.classList.remove('hidden');
-        }
+    if (version.instructions) {
+      instructionsContainer.classList.remove("hidden")
+      gameInstructions.innerHTML = marked.parse(version.instructions)
+      instructionsContainer.open = true
     }
 
-    togglePreviewBtn.addEventListener('click', () => setView('preview'));
-    toggleCodeBtn.addEventListener('click', () => setView('code'));
+    promptHistory = versionHistory.slice(0, index + 1).map((v) => v.prompt)
+  }
 
-    function updateIframe(htmlContent) {
-        const consoleLoggerScript = `<script>
+  versionHistorySelect.addEventListener("change", (e) => {
+    const selectedIndex = Number.parseInt(e.target.value, 10)
+    loadVersion(selectedIndex)
+  })
+
+  // --- Session Management Functions ---
+  function getSessions() {
+    try {
+      const sessions = localStorage.getItem(SESSIONS_STORAGE_KEY)
+      return sessions ? JSON.parse(sessions) : []
+    } catch (e) {
+      console.error("Failed to parse sessions from localStorage:", e)
+      return []
+    }
+  }
+
+  function saveSessions(sessions) {
+    localStorage.setItem(SESSIONS_STORAGE_KEY, JSON.stringify(sessions))
+  }
+
+  function populateSessionDropdown() {
+    const sessions = getSessions()
+    sessionSelect.innerHTML = ""
+    if (sessions.length === 0) {
+      sessionSelect.innerHTML = '<option value="">No sessions saved</option>'
+      return
+    }
+    sessions.forEach((session) => {
+      const option = document.createElement("option")
+      option.value = session.id
+      option.textContent = session.name
+      sessionSelect.appendChild(option)
+    })
+  }
+
+  function saveCurrentSession() {
+    const sessionName = sessionNameInput.value.trim()
+    if (!sessionName) return alert("Please enter a name for your session.")
+    if (versionHistory.length === 0) return alert("There is nothing to save.")
+
+    const sessions = getSessions()
+    const sessionIndex = sessions.findIndex((s) => s.id === currentSessionId)
+
+    if (sessionIndex !== -1) {
+      sessions[sessionIndex].name = sessionName
+      sessions[sessionIndex].history = versionHistory
+    } else {
+      const newSession = { id: Date.now(), name: sessionName, history: versionHistory }
+      sessions.push(newSession)
+      currentSessionId = newSession.id
+    }
+
+    saveSessions(sessions)
+    populateSessionDropdown()
+    sessionSelect.value = currentSessionId
+
+    // Show success feedback
+    const originalText = saveSessionBtn.innerHTML
+    saveSessionBtn.innerHTML = '<i class="fas fa-check"></i> Saved!'
+    saveSessionBtn.style.background = "var(--success)"
+    setTimeout(() => {
+      saveSessionBtn.innerHTML = originalText
+      saveSessionBtn.style.background = ""
+    }, 2000)
+  }
+
+  function loadSelectedSession() {
+    const sessionId = sessionSelect.value
+    if (!sessionId) return
+    const sessions = getSessions()
+    const session = sessions.find((s) => s.id === Number.parseInt(sessionId))
+    if (session) {
+      versionHistory = session.history
+      currentSessionId = session.id
+      sessionNameInput.value = session.name
+      updateVersionHistoryUI()
+      if (versionHistory.length > 0) {
+        loadVersion(versionHistory.length - 1)
+      }
+      showModificationPanel()
+      initialGenerationPanel.classList.add("hidden")
+    }
+  }
+
+  function deleteSelectedSession() {
+    const sessionId = sessionSelect.value
+    if (!sessionId) return alert("No session selected to delete.")
+    if (!confirm("Are you sure you want to delete this session?")) return
+
+    let sessions = getSessions()
+    sessions = sessions.filter((s) => s.id !== Number.parseInt(sessionId))
+    saveSessions(sessions)
+    populateSessionDropdown()
+
+    if (currentSessionId === Number.parseInt(sessionId)) {
+      startNewSession()
+    }
+  }
+
+  function startNewSession() {
+    versionHistory = []
+    promptHistory = []
+    currentSessionId = null
+    sessionNameInput.value = ""
+    promptInput.value = ""
+    modificationInput.value = ""
+
+    codeEditor.value = ""
+    updateIframe("")
+    clearInfoPanels()
+
+    initialGenerationPanel.classList.remove("hidden")
+    modificationPanel.classList.add("hidden")
+    followUpPanel.classList.add("hidden")
+    versionHistoryControls.classList.add("hidden")
+  }
+
+  // --- Event Handlers ---
+  generateBtn.addEventListener("click", () => {
+    const prompt = promptInput.value.trim()
+    if (!prompt) return alert("Please enter an idea!")
+    startNewSession()
+    sessionNameInput.value = prompt.substring(0, 50) + (prompt.length > 50 ? "..." : "")
+    streamResponse("/generate", { prompt })
+  })
+
+  modifyBtn.addEventListener("click", () => {
+    const prompt = modificationInput.value.trim()
+    if (!prompt) return alert("Please describe your modification!")
+    const newPromptHistory = [...promptHistory, prompt]
+    const currentHtml = codeEditor.value
+    if (!currentHtml) return alert("There is no code to modify!")
+    const logs = consoleLogs.join("\n")
+    streamResponse("/modify", {
+      prompt,
+      current_code: currentHtml,
+      console_logs: logs,
+      prompt_history: newPromptHistory,
+    })
+  })
+
+  followUpBtn.addEventListener("click", () => {
+    const question = followUpInput.value.trim()
+    if (!question) return alert("Please ask a question!")
+    const currentHtml = codeEditor.value
+    if (!currentHtml) return alert("There is no code to ask about!")
+    followUpOutputContainer.classList.remove("hidden")
+    followUpOutput.innerHTML = ""
+    streamResponse("/explain", { question: question, current_code: currentHtml }, followUpOutput)
+  })
+
+  downloadBtn.addEventListener("click", () => {
+    const html = codeEditor.value
+    if (!html) return alert("No code to download!")
+    const blob = new Blob([html], { type: "text/html" })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement("a")
+    a.href = url
+    a.download = "codecanvas_creation.html"
+    a.click()
+    URL.revokeObjectURL(url)
+  })
+
+  openTabBtn.addEventListener("click", () => {
+    const html = codeEditor.value
+    if (!html) return alert("No code to open!")
+    const blob = new Blob([html], { type: "text/html" })
+    const url = URL.createObjectURL(blob)
+    window.open(url, "_blank")
+  })
+
+  copyCodeBtn.addEventListener("click", async () => {
+    const code = codeEditor.value
+    if (!code) return
+    try {
+      await navigator.clipboard.writeText(code)
+      const originalContent = copyCodeBtn.innerHTML
+      copyCodeBtn.innerHTML = '<i class="fas fa-check"></i> <span>Copied!</span>'
+      copyCodeBtn.style.background = "var(--success)"
+      setTimeout(() => {
+        copyCodeBtn.innerHTML = originalContent
+        copyCodeBtn.style.background = ""
+      }, 2000)
+    } catch (err) {
+      console.error("Failed to copy text: ", err)
+    }
+  })
+
+  refreshPreviewBtn.addEventListener("click", () => {
+    updateIframe(codeEditor.value)
+    setView("preview")
+  })
+
+  saveSessionBtn.addEventListener("click", saveCurrentSession)
+  loadSessionBtn.addEventListener("click", loadSelectedSession)
+  deleteSessionBtn.addEventListener("click", deleteSelectedSession)
+  newSessionBtn.addEventListener("click", startNewSession)
+
+  // --- UI Helper Functions ---
+  function setView(view) {
+    if (view === "preview") {
+      previewContainer.classList.remove("hidden")
+      codeContainer.classList.add("hidden")
+      togglePreviewBtn.classList.add("active")
+      toggleCodeBtn.classList.remove("active")
+      refreshPreviewBtn.classList.add("hidden")
+    } else {
+      previewContainer.classList.add("hidden")
+      codeContainer.classList.remove("hidden")
+      togglePreviewBtn.classList.remove("active")
+      toggleCodeBtn.classList.add("active")
+      refreshPreviewBtn.classList.remove("hidden")
+    }
+  }
+
+  togglePreviewBtn.addEventListener("click", () => setView("preview"))
+  toggleCodeBtn.addEventListener("click", () => setView("code"))
+
+  function updateIframe(htmlContent) {
+    const consoleLoggerScript = `<script>
                 const originalConsole = { ...window.console };
                 const postLog = (type, args) => {
                     try {
@@ -335,55 +487,66 @@ document.addEventListener('DOMContentLoaded', () => {
                 window.addEventListener('error', event => {
                     postLog('error', [event.message, 'at', event.filename + ':' + event.lineno]);
                 });
-            </script>`;
-        consoleLogs = [];
-        updateConsoleDisplay();
-        gameIframe.srcdoc = consoleLoggerScript + htmlContent;
-    }
+            </script>`
+    consoleLogs = []
+    updateConsoleDisplay()
+    gameIframe.srcdoc = consoleLoggerScript + htmlContent
+  }
 
-    window.addEventListener('message', event => {
-        if (event.data && event.data.type === 'console') {
-            const { level, message } = event.data;
-            const logEntry = `[${level.toUpperCase()}] ${message}`;
-            consoleLogs.push(logEntry);
-            updateConsoleDisplay();
-        }
-    });
-
-    function updateConsoleDisplay() {
-        if (consoleLogs.length > 0) {
-            consoleContainer.classList.remove('hidden');
-            consoleOutput.value = consoleLogs.join('\n');
-            consoleOutput.scrollTop = consoleOutput.scrollHeight;
-        } else {
-            consoleContainer.classList.add('hidden');
-            consoleOutput.value = '';
-        }
+  window.addEventListener("message", (event) => {
+    if (event.data && event.data.type === "console") {
+      const { level, message } = event.data
+      const logEntry = `[${level.toUpperCase()}] ${message}`
+      consoleLogs.push(logEntry)
+      updateConsoleDisplay()
     }
+  })
 
-    function setLoading(isLoading, url) {
-        if (url === '/explain') {
-            followUpSpinner.classList.toggle('hidden', !isLoading);
-            followUpBtn.disabled = isLoading;
-        } else {
-            spinner.classList.toggle('hidden', !isLoading);
-            generateBtn.disabled = isLoading;
-            modifyBtn.disabled = isLoading;
-        }
+  function updateConsoleDisplay() {
+    if (consoleLogs.length > 0) {
+      consoleContainer.classList.remove("hidden")
+      consoleOutput.value = consoleLogs.join("\n")
+      consoleOutput.scrollTop = consoleOutput.scrollHeight
+    } else {
+      consoleContainer.classList.add("hidden")
+      consoleOutput.value = ""
     }
+  }
 
-    function showModificationPanel() {
-        initialGenerationPanel.classList.add('hidden');
-        modificationPanel.classList.remove('hidden');
-        followUpPanel.classList.remove('hidden'); // Show follow-up panel
+  function setLoading(isLoading, url) {
+    if (url === "/explain") {
+      followUpSpinner.classList.toggle("hidden", !isLoading)
+      followUpBtn.disabled = isLoading
+    } else {
+      spinner.classList.toggle("hidden", !isLoading)
+      generateBtn.disabled = isLoading
+      modifyBtn.disabled = isLoading
     }
+  }
 
-    function clearInfoPanels() {
-        analysisContainer.classList.add('hidden');
-        changesContainer.classList.add('hidden');
-        instructionsContainer.classList.add('hidden');
-        aiAnalysis.innerHTML = '';
-        summaryOfChanges.innerHTML = '';
-        gameInstructions.innerHTML = '';
-    }
-});
+  function showModificationPanel() {
+    initialGenerationPanel.classList.add("hidden")
+    modificationPanel.classList.remove("hidden")
+    followUpPanel.classList.remove("hidden")
+  }
+
+  function clearInfoPanels() {
+    analysisContainer.classList.add("hidden")
+    changesContainer.classList.add("hidden")
+    instructionsContainer.classList.add("hidden")
+    aiAnalysis.innerHTML = ""
+    summaryOfChanges.innerHTML = ""
+    gameInstructions.innerHTML = ""
+  }
+
+  // --- Initial Setup ---
+  initTheme()
+  populateSessionDropdown()
+
+  // Add some nice entrance animations
+  setTimeout(() => {
+    document.querySelectorAll(".panel").forEach((panel, index) => {
+      panel.style.animationDelay = `${index * 0.1}s`
+    })
+  }, 100)
+})
