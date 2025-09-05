@@ -1,29 +1,32 @@
-<!-- START OF FILE index.html -->
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AI Web Game Generator</title>
+    <title>AI Web Visualization Generator</title>
     <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
     <div class="container">
         <div class="controls-panel">
-            <h1>AI Web Game Generator</h1>
-            <p>Describe your game idea, and let a powerful AI build it for you in real-time.</p>
+            <h1>AI Web Visualization Generator</h1>
+            <p>Describe your idea for a visualization, and let a powerful AI build it for you in real-time. This can be a game, a data chart, an educational tool, or anything else you can imagine.</p>
 
             <div id="initial-generation">
-                <textarea id="prompt-input" placeholder="e.g., A simple breakout game where the paddle is controlled by the mouse"></textarea>
-                <button id="generate-btn">Generate Game</button>
+                <textarea id="prompt-input" placeholder="e.g., A bouncing ball simulation, a bar chart of population data, or a simple breakout game"></textarea>
+                <button id="generate-btn">Generate</button>
             </div>
 
             <div id="modification-panel" class="hidden">
-                <h3>Modify Your Game</h3>
+                <div id="version-history-controls" class="hidden">
+                    <h3>Version History</h3>
+                    <p>Revert to a previous version of your project.</p>
+                    <select id="version-history-select"></select>
+                </div>
+
+                <h3>Modify Your Project</h3>
                 <p>Describe a change, add a feature, or report a bug.</p>
-                <textarea id="modification-input" placeholder="e.g., Make the ball move faster, or add a scoring system"></textarea>
-                <!-- NEW: Console log display area -->
+                <textarea id="modification-input" placeholder="e.g., Make the ball change color, add labels to the bar chart, or add a scoring system"></textarea>
                 <div id="console-container" class="hidden">
                     <label for="console-output">Live Console Logs:</label>
                     <textarea id="console-output" readonly></textarea>
@@ -39,18 +42,44 @@
                 <div class="spinner"></div>
                 <p>AI is thinking...</p>
             </div>
+            
+            <!-- NEW: Containers are now collapsible <details> elements -->
+            <details id="analysis-container" class="info-container hidden">
+                <summary><h3>AI Analysis</h3></summary>
+                <div id="ai-analysis" class="info-content"></div>
+            </details>
 
-            <div id="instructions-container" class="hidden">
-                <h3>How to Play</h3>
-                <div id="game-instructions"></div>
+            <details id="changes-container" class="info-container hidden">
+                <summary><h3>Summary of Changes</h3></summary>
+                <div id="summary-of-changes" class="info-content"></div>
+            </details>
+
+            <details id="instructions-container" class="info-container hidden">
+                <summary><h3>Instructions / Notes</h3></summary>
+                <div id="game-instructions" class="info-content"></div>
+            </details>
+
+            <!-- NEW: Renamed from "Tutor Panel" to "Follow-up Panel" for generality -->
+            <div id="follow-up-panel" class="hidden">
+                <h3>Ask a Follow-up</h3>
+                <p>Ask about the code, suggest alternatives, or ask conceptual questions.</p>
+                <textarea id="follow-up-input" placeholder="e.g., Explain this code block, or suggest a different color scheme."></textarea>
+                <button id="follow-up-btn">Ask</button>
+                <div id="follow-up-spinner" class="spinner-container hidden">
+                    <div class="spinner"></div>
+                    <p>AI is thinking...</p>
+                </div>
+                <div id="follow-up-output-container" class="info-container hidden">
+                    <div id="follow-up-output" class="info-content"></div>
+                </div>
             </div>
+
         </div>
 
         <div class="output-panel">
             <div class="view-toggle">
                 <button id="toggle-preview-btn" class="active">Live Preview</button>
                 <button id="toggle-code-btn">Generated Code</button>
-                <!-- NEW: Copy Code button added -->
                 <button id="copy-code-btn">Copy Code</button>
                 <button id="refresh-preview-btn" class="hidden">Refresh Preview</button>
             </div>
@@ -59,11 +88,12 @@
                 <textarea id="code-editor" spellcheck="false" placeholder="AI-generated code will appear here..."></textarea>
             </div>
             <div class="game-container">
-                <iframe id="game-iframe" sandbox="allow-scripts allow-pointer-lock allow-same-origin" title="Generated Game"></iframe>
+                <iframe id="game-iframe" sandbox="allow-scripts allow-pointer-lock allow-same-origin" title="Generated Visualization"></iframe>
             </div>
         </div>
     </div>
 
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <script src="/static/script.js"></script>
 </body>
 </html>

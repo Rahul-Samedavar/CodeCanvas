@@ -21,6 +21,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const modificationPanel = document.getElementById('modification-panel');
     const spinner = document.querySelector('.spinner-container');
 
+    // NEW: Info display selectors
     const analysisContainer = document.getElementById('analysis-container');
     const aiAnalysis = document.getElementById('ai-analysis');
     const changesContainer = document.getElementById('changes-container');
@@ -28,25 +29,22 @@ document.addEventListener('DOMContentLoaded', () => {
     const instructionsContainer = document.getElementById('instructions-container');
     const gameInstructions = document.getElementById('game-instructions');
 
+    // NEW: Console log display elements
     const consoleContainer = document.getElementById('console-container');
     const consoleOutput = document.getElementById('console-output');
 
-    // UPDATED: Renamed from tutor elements
-    const followUpPanel = document.getElementById('follow-up-panel');
-    const followUpInput = document.getElementById('follow-up-input');
-    const followUpBtn = document.getElementById('follow-up-btn');
-    const followUpSpinner = document.getElementById('follow-up-spinner');
-    const followUpOutputContainer = document.getElementById('follow-up-output-container');
-    const followUpOutput = document.getElementById('follow-up-output');
-
-    const versionHistoryControls = document.getElementById('version-history-controls');
-    const versionHistorySelect = document.getElementById('version-history-select');
+    // NEW: Tutor panel elements
+    const tutorPanel = document.getElementById('tutor-panel');
+    const tutorInput = document.getElementById('tutor-input');
+    const tutorBtn = document.getElementById('tutor-btn');
+    const tutorSpinner = document.getElementById('tutor-spinner');
+    const tutorOutputContainer = document.getElementById('tutor-output-container');
+    const tutorOutput = document.getElementById('tutor-output');
 
     // --- State Variables ---
     let promptHistory = [];
     let consoleLogs = [];
     let abortController = null;
-    let versionHistory = [];
 
     // --- Core Functions ---
     function cleanHtml(htmlString) {
@@ -54,7 +52,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     async function streamResponse(url, body, targetElement) {
-        setLoading(true, url);
+        setLoading(true, url); // Pass URL to know which spinner to show
 
         if (url !== '/explain') {
             setView('preview');
@@ -88,15 +86,14 @@ document.addEventListener('DOMContentLoaded', () => {
                 const chunk = decoder.decode(value, { stream: true });
                 currentFullText += chunk;
                 if (targetElement) {
-                    targetElement.innerHTML = marked.parse(currentFullText);
+                    targetElement.innerHTML = marked.parse(currentFullText); // Use marked for tutor output
                 } else {
                     updateUIFromStream(currentFullText);
                 }
             }
             if (url !== '/explain') {
-                const finalData = parseFullResponse(currentFullText);
-                updateIframe(finalData.html);
-                saveVersion({ ...finalData, prompt: body.prompt });
+                const { html } = parseFullResponse(currentFullText);
+                updateIframe(html);
                 showModificationPanel();
             }
 
@@ -109,7 +106,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     codeEditor.value = `Error: Failed to get response from server. Check console for details.`;
                     setView('code');
                 } else {
-                     followUpOutput.textContent = 'Error: Could not get response from AI.'
+                     tutorOutput.textContent = 'Error: Could not get response from tutor.'
                 }
             }
         } finally {
@@ -118,6 +115,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
+    // NEW: Updated parser for the V2 format
     function parseFullResponse(fullText) {
         const result = { analysis: '', changes: '', instructions: '', html: '' };
         
@@ -140,23 +138,21 @@ document.addEventListener('DOMContentLoaded', () => {
         return result;
     }
 
+    // NEW: Updated UI updater
     function updateUIFromStream(fullText) {
         const { analysis, changes, instructions, html } = parseFullResponse(fullText);
 
         if (analysis) {
             analysisContainer.classList.remove('hidden');
-            analysisContainer.open = true; // NEW: Ensure it's expanded
-            aiAnalysis.innerHTML = marked.parse(analysis);
+            aiAnalysis.innerHTML = marked.parse(analysis); // Render markdown
         }
         if (changes) {
             changesContainer.classList.remove('hidden');
-            changesContainer.open = true; // NEW: Ensure it's expanded
-            summaryOfChanges.innerHTML = marked.parse(changes);
+            summaryOfChanges.innerHTML = marked.parse(changes); // Render markdown
         }
         if (instructions) {
             instructionsContainer.classList.remove('hidden');
-            instructionsContainer.open = true; // NEW: Ensure it's expanded
-            gameInstructions.innerHTML = marked.parse(instructions);
+            gameInstructions.innerHTML = marked.parse(instructions); // Render markdown
         }
         if (html) {
             codeEditor.value = html;
@@ -164,74 +160,19 @@ document.addEventListener('DOMContentLoaded', () => {
             codeEditor.value = "Waiting for HTML code...";
         }
     }
-    
-    // --- Version History Functions ---
-    function saveVersion(versionData) {
-        versionHistory.push(versionData);
-        promptHistory.push(versionData.prompt);
-        updateVersionHistoryUI();
-    }
-    
-    function updateVersionHistoryUI() {
-        versionHistoryControls.classList.remove('hidden');
-        versionHistorySelect.innerHTML = '';
-        
-        versionHistory.forEach((version, index) => {
-            const option = document.createElement('option');
-            option.value = index;
-            const promptSnippet = version.prompt.length > 50 ? version.prompt.substring(0, 47) + '...' : version.prompt;
-            option.textContent = `V${index + 1}: ${promptSnippet}`;
-            versionHistorySelect.prepend(option);
-        });
-        
-        versionHistorySelect.value = versionHistory.length - 1;
-    }
-
-    function loadVersion(index) {
-        const version = versionHistory[index];
-        if (!version) return;
-
-        codeEditor.value = version.html;
-        updateIframe(version.html);
-
-        clearInfoPanels();
-        if(version.analysis) {
-            analysisContainer.classList.remove('hidden');
-            analysisContainer.open = true; // NEW: Ensure it's expanded
-            aiAnalysis.innerHTML = marked.parse(version.analysis);
-        }
-        if(version.changes) {
-            changesContainer.classList.remove('hidden');
-            changesContainer.open = true; // NEW: Ensure it's expanded
-            summaryOfChanges.innerHTML = marked.parse(version.changes);
-        }
-        if(version.instructions) {
-            instructionsContainer.classList.remove('hidden');
-            instructionsContainer.open = true; // NEW: Ensure it's expanded
-            gameInstructions.innerHTML = marked.parse(version.instructions);
-        }
-        
-        promptHistory = versionHistory.slice(0, index + 1).map(v => v.prompt);
-    }
-    
-    versionHistorySelect.addEventListener('change', (e) => {
-        const selectedIndex = parseInt(e.target.value, 10);
-        loadVersion(selectedIndex);
-    });
 
     // --- Event Handlers ---
     generateBtn.addEventListener('click', () => {
         const prompt = promptInput.value.trim();
-        if (!prompt) return alert('Please enter an idea!');
-        versionHistory = [];
-        promptHistory = [];
+        if (!prompt) return alert('Please enter a game idea!');
+        promptHistory = [prompt];
         streamResponse('/generate', { prompt });
     });
 
     modifyBtn.addEventListener('click', () => {
         const prompt = modificationInput.value.trim();
         if (!prompt) return alert('Please describe your modification!');
-        const newPromptHistory = [...promptHistory, prompt];
+        promptHistory.push(prompt);
 
         const currentHtml = codeEditor.value;
         if (!currentHtml) return alert('There is no code to modify!');
@@ -241,37 +182,37 @@ document.addEventListener('DOMContentLoaded', () => {
             prompt,
             current_code: currentHtml,
             console_logs: logs,
-            prompt_history: newPromptHistory
+            prompt_history: promptHistory
         });
     });
     
-    // UPDATED: Renamed from tutorBtn
-    followUpBtn.addEventListener('click', () => {
-        const question = followUpInput.value.trim();
-        if (!question) return alert('Please ask a question!');
+    // NEW: Tutor button handler
+    tutorBtn.addEventListener('click', () => {
+        const question = tutorInput.value.trim();
+        if (!question) return alert('Please ask a question about the code!');
         const currentHtml = codeEditor.value;
-        if (!currentHtml) return alert('There is no code to ask about!');
+        if (!currentHtml) return alert('There is no code to explain!');
 
-        followUpOutputContainer.classList.remove('hidden');
-        followUpOutput.innerHTML = '';
-        streamResponse('/explain', { question: question, current_code: currentHtml }, followUpOutput);
+        tutorOutputContainer.classList.remove('hidden');
+        tutorOutput.innerHTML = '';
+        streamResponse('/explain', { question: question, current_code: currentHtml }, tutorOutput);
     });
 
     downloadBtn.addEventListener('click', () => {
         const html = codeEditor.value;
-        if (!html) return alert('No code to download!');
+        if (!html) return alert('No game code to download!');
         const blob = new Blob([html], { type: 'text/html' });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = 'ai_generated_visualization.html';
+        a.download = 'ai_generated_game.html';
         a.click();
         URL.revokeObjectURL(url);
     });
 
     openTabBtn.addEventListener('click', () => {
         const html = codeEditor.value;
-        if (!html) return alert('No code to open!');
+        if (!html) return alert('No game code to open!');
         const blob = new Blob([html], { type: 'text/html' });
         const url = URL.createObjectURL(blob);
         window.open(url, '_blank');
@@ -363,8 +304,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function setLoading(isLoading, url) {
         if (url === '/explain') {
-            followUpSpinner.classList.toggle('hidden', !isLoading);
-            followUpBtn.disabled = isLoading;
+            tutorSpinner.classList.toggle('hidden', !isLoading);
+            tutorBtn.disabled = isLoading;
         } else {
             spinner.classList.toggle('hidden', !isLoading);
             generateBtn.disabled = isLoading;
@@ -375,7 +316,7 @@ document.addEventListener('DOMContentLoaded', () => {
     function showModificationPanel() {
         initialGenerationPanel.classList.add('hidden');
         modificationPanel.classList.remove('hidden');
-        followUpPanel.classList.remove('hidden'); // Show follow-up panel
+        tutorPanel.classList.remove('hidden'); // NEW: Show tutor panel after first generation
     }
 
     function clearInfoPanels() {
