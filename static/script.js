@@ -40,9 +40,13 @@ document.addEventListener("DOMContentLoaded", () => {
   const versionHistoryControls = document.getElementById("version-history-controls")
   const versionHistorySelect = document.getElementById("version-history-select")
 
-  const sessionBtn = document.getElementById("session-btn")
-  const sessionPopup = document.getElementById("session-popup")
-  const sessionPopupClose = document.getElementById("session-popup-close")
+  const loadSessionBtn = document.getElementById("load-session-btn")
+  const saveSessionBtn = document.getElementById("save-session-btn")
+  const loadSessionPopup = document.getElementById("load-session-popup")
+  const saveSessionPopup = document.getElementById("save-session-popup")
+  const loadSessionPopupClose = document.getElementById("load-session-popup-close")
+  const saveSessionPopupClose = document.getElementById("save-session-popup-close")
+
   const followupFloat = document.getElementById("followup-float")
   const followupBtn = document.getElementById("followup-btn")
   const followupPopup = document.getElementById("followup-popup")
@@ -51,10 +55,14 @@ document.addEventListener("DOMContentLoaded", () => {
   // Session Management Selectors
   const sessionSelect = document.getElementById("session-select")
   const sessionNameInput = document.getElementById("session-name-input")
-  const loadSessionBtn = document.getElementById("load-session-btn")
-  const saveSessionBtn = document.getElementById("save-session-btn")
+  const loadSessionActionBtn = document.getElementById("load-session-action-btn")
+  const saveSessionActionBtn = document.getElementById("save-session-action-btn")
   const deleteSessionBtn = document.getElementById("delete-session-btn")
   const newSessionBtn = document.getElementById("new-session-btn")
+
+  const hamburgerBtn = document.getElementById("hamburger-btn")
+  const sidebar = document.getElementById("sidebar")
+  const sidebarOverlay = document.getElementById("sidebar-overlay")
 
   // Theme Toggle
   const themeToggle = document.getElementById("theme-toggle")
@@ -66,6 +74,37 @@ document.addEventListener("DOMContentLoaded", () => {
   let versionHistory = []
   let currentSessionId = null
   const SESSIONS_STORAGE_KEY = "CodeCanvasSessions"
+
+  function initMobileMenu() {
+    hamburgerBtn.addEventListener("click", toggleSidebar)
+    sidebarOverlay.addEventListener("click", closeSidebar)
+
+    // Close sidebar when clicking on sidebar content on mobile
+    sidebar.addEventListener("click", (e) => {
+      if (window.innerWidth <= 768 && !e.target.closest(".panel")) {
+        closeSidebar()
+      }
+    })
+  }
+
+  function toggleSidebar() {
+    sidebar.classList.toggle("open")
+    sidebarOverlay.classList.toggle("show")
+    hamburgerBtn.classList.toggle("active")
+  }
+
+  function closeSidebar() {
+    sidebar.classList.remove("open")
+    sidebarOverlay.classList.remove("show")
+    hamburgerBtn.classList.remove("active")
+  }
+
+  // Close sidebar on window resize if mobile
+  window.addEventListener("resize", () => {
+    if (window.innerWidth > 768) {
+      closeSidebar()
+    }
+  })
 
   function initParticleBackground() {
     const canvas = document.getElementById("particle-canvas")
@@ -160,18 +199,28 @@ document.addEventListener("DOMContentLoaded", () => {
     document.body.style.overflow = ""
   }
 
-  // Session popup event listeners
-  sessionBtn.addEventListener("click", () => openPopup(sessionPopup))
-  sessionPopupClose.addEventListener("click", () => closePopup(sessionPopup))
+  loadSessionBtn.addEventListener("click", () => {
+    populateSessionDropdown()
+    openPopup(loadSessionPopup)
+  })
+  saveSessionBtn.addEventListener("click", () => openPopup(saveSessionPopup))
+
+  loadSessionPopupClose.addEventListener("click", () => closePopup(loadSessionPopup))
+  saveSessionPopupClose.addEventListener("click", () => closePopup(saveSessionPopup))
 
   // Follow-up popup event listeners
   followupBtn.addEventListener("click", () => openPopup(followupPopup))
   followupPopupClose.addEventListener("click", () => closePopup(followupPopup))
 
-  // Close popups when clicking overlay
-  sessionPopup.addEventListener("click", (e) => {
-    if (e.target === sessionPopup || e.target.classList.contains("popup-overlay")) {
-      closePopup(sessionPopup)
+  loadSessionPopup.addEventListener("click", (e) => {
+    if (e.target === loadSessionPopup || e.target.classList.contains("popup-overlay")) {
+      closePopup(loadSessionPopup)
+    }
+  })
+
+  saveSessionPopup.addEventListener("click", (e) => {
+    if (e.target === saveSessionPopup || e.target.classList.contains("popup-overlay")) {
+      closePopup(saveSessionPopup)
     }
   })
 
@@ -181,11 +230,14 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   })
 
-  // Close popups with Escape key
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape") {
-      closePopup(sessionPopup)
+      closePopup(loadSessionPopup)
+      closePopup(saveSessionPopup)
       closePopup(followupPopup)
+      if (window.innerWidth <= 768) {
+        closeSidebar()
+      }
     }
   })
 
@@ -430,34 +482,37 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     saveSessions(sessions)
-    populateSessionDropdown()
-    sessionSelect.value = currentSessionId
 
-    // Show success feedback
-    const originalText = saveSessionBtn.innerHTML
-    saveSessionBtn.innerHTML = '<i class="fas fa-check"></i> Saved!'
-    saveSessionBtn.style.background = "var(--success)"
+    const originalText = saveSessionActionBtn.innerHTML
+    saveSessionActionBtn.innerHTML = '<i class="fas fa-check"></i> Saved!'
+    saveSessionActionBtn.style.background = "var(--success)"
     setTimeout(() => {
-      saveSessionBtn.innerHTML = originalText
-      saveSessionBtn.style.background = ""
-    }, 2000)
+      saveSessionActionBtn.innerHTML = originalText
+      saveSessionActionBtn.style.background = ""
+      closePopup(saveSessionPopup)
+      sessionNameInput.value = ""
+    }, 1500)
   }
 
   function loadSelectedSession() {
     const sessionId = sessionSelect.value
-    if (!sessionId) return
+    if (!sessionId) return alert("Please select a session to load.")
     const sessions = getSessions()
     const session = sessions.find((s) => s.id === Number.parseInt(sessionId))
     if (session) {
       versionHistory = session.history
       currentSessionId = session.id
-      sessionNameInput.value = session.name
       updateVersionHistoryUI()
       if (versionHistory.length > 0) {
         loadVersion(versionHistory.length - 1)
       }
       showModificationPanel()
       initialGenerationPanel.classList.add("hidden")
+
+      closePopup(loadSessionPopup)
+      if (window.innerWidth <= 768) {
+        closeSidebar()
+      }
     }
   }
 
@@ -490,8 +545,13 @@ document.addEventListener("DOMContentLoaded", () => {
 
     initialGenerationPanel.classList.remove("hidden")
     modificationPanel.classList.add("hidden")
-    followupFloat.classList.add("hidden")
+    followupFloat.classList.remove("show")
     versionHistoryControls.classList.add("hidden")
+
+    closePopup(loadSessionPopup)
+    if (window.innerWidth <= 768) {
+      closeSidebar()
+    }
   }
 
   // --- Event Handlers ---
@@ -501,6 +561,10 @@ document.addEventListener("DOMContentLoaded", () => {
     startNewSession()
     sessionNameInput.value = prompt.substring(0, 50) + (prompt.length > 50 ? "..." : "")
     streamResponse("/generate", { prompt })
+
+    if (window.innerWidth <= 768) {
+      closeSidebar()
+    }
   })
 
   modifyBtn.addEventListener("click", () => {
@@ -516,6 +580,10 @@ document.addEventListener("DOMContentLoaded", () => {
       console_logs: logs,
       prompt_history: newPromptHistory,
     })
+
+    if (window.innerWidth <= 768) {
+      closeSidebar()
+    }
   })
 
   followUpBtn.addEventListener("click", () => {
@@ -571,8 +639,8 @@ document.addEventListener("DOMContentLoaded", () => {
     setView("preview")
   })
 
-  saveSessionBtn.addEventListener("click", saveCurrentSession)
-  loadSessionBtn.addEventListener("click", loadSelectedSession)
+  saveSessionActionBtn.addEventListener("click", saveCurrentSession)
+  loadSessionActionBtn.addEventListener("click", loadSelectedSession)
   deleteSessionBtn.addEventListener("click", deleteSelectedSession)
   newSessionBtn.addEventListener("click", startNewSession)
 
@@ -672,6 +740,7 @@ document.addEventListener("DOMContentLoaded", () => {
   // --- Initial Setup ---
   initTheme()
   initParticleBackground()
+  initMobileMenu() // Initialize mobile menu
   populateSessionDropdown()
 
   // Add some nice entrance animations
