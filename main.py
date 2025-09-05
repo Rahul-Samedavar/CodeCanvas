@@ -66,13 +66,12 @@ class GeminiModelManager:
         )
         print(f"Gemini Manager initialized for model: {self.model_name} with {len(self.keys)} API key(s).")
 
-    async def generate_content_streaming(self, prompt: str) -> AsyncGenerator[str, None]:
-        """Stream model output using the Gemini API."""
-        api_key = next(self.key_cycler)
+    async def generate_content_streaming_with_key(self, prompt: str, api_key: str) -> AsyncGenerator[str, None]:
+        """Stream model output using the Gemini API with a specific key."""
         genai.configure(api_key=api_key)
         model = genai.GenerativeModel(self.model_name)
         
-        print(f"[Gemini] Attempting generation with model {self.model_name}")
+        print(f"[Gemini] Attempting generation with model {self.model_name} using key ending in ...{api_key[-4:]}")
         stream = await model.generate_content_async(
             prompt,
             stream=True,
@@ -81,7 +80,32 @@ class GeminiModelManager:
         async for chunk in stream:
             if chunk.text:
                 yield chunk.text
-        print("[Gemini] Successfully generated response.")
+        print(f"[Gemini] Successfully generated response with key ending in ...{api_key[-4:]}")
+
+    async def generate_content_streaming(self, prompt: str) -> AsyncGenerator[str, None]:
+        """Stream model output using the next key in rotation."""
+        api_key = next(self.key_cycler)
+        async for chunk in self.generate_content_streaming_with_key(prompt, api_key):
+            yield chunk
+
+    async def try_all_keys_streaming(self, prompt: str) -> AsyncGenerator[str, None]:
+        """Try all available API keys sequentially before giving up."""
+        last_exception = None
+        
+        for i, api_key in enumerate(self.keys):
+            try:
+                print(f"[Gemini] Trying key {i+1}/{len(self.keys)} (ending in ...{api_key[-4:]})")
+                async for chunk in self.generate_content_streaming_with_key(prompt, api_key):
+                    yield chunk
+                return  # Success, exit the generator
+            except Exception as e:
+                last_exception = e
+                print(f"[Gemini] Key {i+1}/{len(self.keys)} failed: {str(e)}")
+                continue
+        
+        # If we get here, all keys failed
+        print(f"[Gemini] All {len(self.keys)} API keys failed. Last error: {last_exception}")
+        raise last_exception or Exception("All Gemini API keys failed")
 
 class RequestyModelManager:
     """Connects to a model via the Requesty.ai router using the OpenAI SDK."""
@@ -116,7 +140,7 @@ class RequestyModelManager:
         print("[Requesty] Successfully generated response.")
 
 class MultiModelManager:
-    """Orchestrates model selection, attempting Gemini first and falling back to Requesty."""
+    """Orchestrates model selection, attempting all Gemini keys first and falling back to Requesty."""
     def __init__(self, config: AppSettings):
         self.gemini_manager: Optional[GeminiModelManager] = None
         if config.gemini_api_keys:
@@ -128,17 +152,18 @@ class MultiModelManager:
         self.requesty_manager = RequestyModelManager(config)
 
     async def generate_content_streaming(self, prompt: str, request: Request) -> AsyncGenerator[str, None]:
-        """Tries Gemini first, then falls back to Requesty on any failure."""
+        """Tries all Gemini keys first, then falls back to Requesty on complete failure."""
         if self.gemini_manager:
             try:
-                async for chunk in self.gemini_manager.generate_content_streaming(prompt):
+                print("[Orchestrator] Attempting generation with all available Gemini keys...")
+                async for chunk in self.gemini_manager.try_all_keys_streaming(prompt):
                     yield chunk
-                return # Success, so we exit the generator
+                return  # Success, so we exit the generator
             except Exception as e:
-                print(f"[Orchestrator] Gemini failed with error: {e}. Falling back to Requesty.")
-                yield f"// INFO: Primary model failed. Retrying with fallback...\n"
+                print(f"[Orchestrator] All Gemini keys failed with final error: {e}. Falling back to Requesty.")
+                yield f"// INFO: All primary model keys failed. Retrying with fallback model...\n"
 
-        # Fallback logic
+        # Fallback logic - only reached if all Gemini keys fail or no Gemini keys available
         print("[Orchestrator] Using fallback: Requesty.")
         async for chunk in self.requesty_manager.generate_content_streaming(prompt, request):
             yield chunk
