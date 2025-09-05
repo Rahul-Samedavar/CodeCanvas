@@ -1,105 +1,149 @@
 import os
 import asyncio
+import itertools
 from pathlib import Path
-from typing import AsyncGenerator, Optional
+from typing import AsyncGenerator, List, Optional
 
+import openai
 import google.generativeai as genai
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, StreamingResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
-# --- Configuration ---
-load_dotenv()
-MODEL_NAME = os.environ.get("GEMINI_MODEL", "gemini-1.5-flash-latest")  # Allow override via env
-STATIC_DIR = Path(os.environ.get("STATIC_DIR", "static"))
-INDEX_FILE = STATIC_DIR / "index.html"
+# --- Configuration (IMPROVED FOR MULTI-MODEL) ---
+class AppSettings(BaseSettings):
+    """Manages application settings using Pydantic for validation."""
+    model_config = SettingsConfigDict(env_file='.env', env_file_encoding='utf-8', extra='ignore')
+
+    # Primary (Gemini) settings
+    primary_model_name: str = Field(default="gemini-1.5-flash-latest", alias="PRIMARY_AI_MODEL_NAME")
+    gemini_api_keys: str = Field(default="", alias="GEMINI_API_KEYS")
+
+    # Fallback (Requesty) settings
+    fallback_model_name: str = Field(default="gemini-1.5-pro-latest", alias="AI_MODEL_NAME")
+    requesty_api_key: str = Field(..., alias="REQUESTY_API_KEY")
+    requesty_site_url: str = Field(default="", alias="REQUESTY_SITE_URL")
+    requesty_site_name: str = Field(default="AI Game Gen", alias="REQUESTY_SITE_NAME")
+    
+    cors_allow_origins: str = Field(default="*", alias="CORS_ALLOW_ORIGINS")
+    static_dir: Path = Field(default=Path("static"), alias="STATIC_DIR")
+
+    @property
+    def index_file(self) -> Path:
+        return self.static_dir / "index.html"
+    
+    # Custom validator to split comma-separated keys
+    def __init__(self, **values):
+        super().__init__(**values)
+        if isinstance(self.gemini_api_keys, str):
+            self.gemini_api_keys = [key.strip() for key in self.gemini_api_keys.split(',') if key.strip()]
+
+# Load settings and handle potential errors at startup
+try:
+    settings = AppSettings()
+except Exception as e:
+    raise RuntimeError(f"FATAL: Configuration error. Is your .env file set up correctly? Details: {e}")
 
 
-# --- Key Management with Round-Robin and Fallback ---
-class GeminiKeyManager:
-    """Round-robin through multiple Gemini API keys with fallback on failure.
+# --- Model Managers ---
 
-    Thread-safe for asyncio via an internal lock. Starts with the *current* key,
-    then advances the pointer for the next request.
-    """
-
-    def __init__(self) -> None:
-        keys_str = os.environ.get("GEMINI_API_KEYS")
-        if not keys_str:
-            raise ValueError(
-                "GEMINI_API_KEYS not found in .env or environment. Provide a comma-separated list of one or more keys."
-            )
-
-        self.keys = [k.strip() for k in keys_str.split(",") if k.strip()]
+class GeminiModelManager:
+    """Connects to Google Gemini models and handles round-robin key switching."""
+    def __init__(self, config: AppSettings):
+        self.model_name = config.primary_model_name
+        self.keys = config.gemini_api_keys
         if not self.keys:
-            raise ValueError("GEMINI_API_KEYS is empty after parsing. Provide at least one valid key.")
-
-        self._idx = 0
-        self._lock = asyncio.Lock()
-        print(f"KeyManager initialized with {len(self.keys)} API key(s). Starting index: {self._idx}")
-
-    async def _reserve_start_index(self) -> int:
-        """Return the current index and advance for the *next* request (round-robin)."""
-        async with self._lock:
-            start = self._idx
-            self._idx = (self._idx + 1) % len(self.keys)
-            return start
+            raise ValueError("GeminiModelManager initialized but no GEMINI_API_KEYS were provided.")
+        self.key_cycler = itertools.cycle(self.keys)
+        self.generation_config = genai.GenerationConfig(
+            temperature=0.7,
+            top_p=1,
+            top_k=1
+        )
+        print(f"Gemini Manager initialized for model: {self.model_name} with {len(self.keys)} API key(s).")
 
     async def generate_content_streaming(self, prompt: str) -> AsyncGenerator[str, None]:
-        """Stream model output. Tries each key in round-robin order starting at the reserved index.
+        """Stream model output using the Gemini API."""
+        api_key = next(self.key_cycler)
+        genai.configure(api_key=api_key)
+        model = genai.GenerativeModel(self.model_name)
+        
+        print(f"[Gemini] Attempting generation with model {self.model_name}")
+        stream = await model.generate_content_async(
+            prompt,
+            stream=True,
+            generation_config=self.generation_config
+        )
+        async for chunk in stream:
+            if chunk.text:
+                yield chunk.text
+        print("[Gemini] Successfully generated response.")
 
-        Yields plain text chunks as they arrive. If all keys fail, yields a final
-        fatal message and raises the last exception to signal upstream.
-        """
-        start_index = await self._reserve_start_index()
-        last_error: Optional[Exception] = None
+class RequestyModelManager:
+    """Connects to a model via the Requesty.ai router using the OpenAI SDK."""
+    def __init__(self, config: AppSettings):
+        self.model_name = config.fallback_model_name
+        headers = {
+            "HTTP-Referer": config.requesty_site_url,
+            "X-Title": config.requesty_site_name,
+        }
+        self.client = openai.AsyncOpenAI(
+            api_key=config.requesty_api_key,
+            base_url="https://router.requesty.ai/v1",
+            default_headers={k: v for k, v in headers.items() if v},
+        )
+        print(f"Requesty Fallback Manager initialized for model: {self.model_name}")
 
-        for attempt in range(len(self.keys)):
-            key_index = (start_index + attempt) % len(self.keys)
-            api_key = self.keys[key_index]
+    async def generate_content_streaming(self, prompt: str, request: Request) -> AsyncGenerator[str, None]:
+        """Stream model output using the OpenAI chat completions API."""
+        print(f"[Requesty] Attempting generation with model {self.model_name}")
+        stream = await self.client.chat.completions.create(
+            model=self.model_name,
+            messages=[{"role": "user", "content": prompt}],
+            stream=True,
+        )
+        async for chunk in stream:
+            if await request.is_disconnected():
+                print("[Requesty] Client disconnected. Cancelling stream.")
+                break
+            content = chunk.choices[0].delta.content
+            if content:
+                yield content
+        print("[Requesty] Successfully generated response.")
 
+class MultiModelManager:
+    """Orchestrates model selection, attempting Gemini first and falling back to Requesty."""
+    def __init__(self, config: AppSettings):
+        self.gemini_manager: Optional[GeminiModelManager] = None
+        if config.gemini_api_keys:
             try:
-                print(f"[Gemini] Attempting generation with key index: {key_index}")
-                genai.configure(api_key=api_key)
-                model = genai.GenerativeModel(MODEL_NAME)
+                self.gemini_manager = GeminiModelManager(config)
+            except ValueError as e:
+                print(f"Warning: Could not initialize Gemini Manager. {e}")
+        
+        self.requesty_manager = RequestyModelManager(config)
 
-                # google.generativeai streaming iterator (sync iterable)
-                response = model.generate_content(prompt, stream=True)
+    async def generate_content_streaming(self, prompt: str, request: Request) -> AsyncGenerator[str, None]:
+        """Tries Gemini first, then falls back to Requesty on any failure."""
+        if self.gemini_manager:
+            try:
+                async for chunk in self.gemini_manager.generate_content_streaming(prompt):
+                    yield chunk
+                return # Success, so we exit the generator
+            except Exception as e:
+                print(f"[Orchestrator] Gemini failed with error: {e}. Falling back to Requesty.")
+                yield f"// INFO: Primary model failed. Retrying with fallback...\n"
 
-                for chunk in response:  # type: ignore[assignment]
-                    # Be defensive: some chunks may not have text
-                    text = getattr(chunk, "text", None)
-                    if text:
-                        # Important: ensure newlines are forwarded as-is for better UX
-                        yield text
+        # Fallback logic
+        print("[Orchestrator] Using fallback: Requesty.")
+        async for chunk in self.requesty_manager.generate_content_streaming(prompt, request):
+            yield chunk
 
-                print(f"[Gemini] Successfully generated response with key index: {key_index}")
-                return
-
-            except asyncio.CancelledError:
-                # Propagate cancellations cleanly for client disconnects
-                print("[Gemini] Streaming cancelled by client.")
-                raise
-            except Exception as e:  # noqa: BLE001 - we want to bubble the last error
-                last_error = e
-                print(f"[Gemini] Error with key index {key_index}: {e}")
-                # Try the next key in the next loop iteration
-                continue
-
-        # If we reach here, all keys failed
-        msg = f"// FATAL: All API keys failed. Last error: {last_error}"
-        # Yield a final human-readable line for logs/clients, then raise
-        yield msg
-        if last_error:
-            raise last_error
-        else:
-            raise RuntimeError("All API keys failed for an unknown reason.")
-
-
-# --- Prompt Engineering: Structured for Instructions and Code ---
+# --- Prompt Engineering (Unchanged) ---
 INSTRUCTIONS_FORMAT = (
     """
 **Output Format:**
@@ -108,26 +152,19 @@ You MUST follow this structure precisely.
 2.  Write a clear "How to Play" section explaining the game's controls and objective.
 3.  End the instructions with the `[END_INSTRUCTIONS]` tag.
 4.  Immediately after `[END_INSTRUCTIONS]`, with no extra lines or text, provide the complete HTML code starting with `<!DOCTYPE html>`.
-
-**Example Output Structure:**
-[INSTRUCTIONS]
-Objective: Don't let the ball hit the floor.
-Controls: Use the mouse to move the paddle left and right.
-[END_INSTRUCTIONS]
-<!DOCTYPE html>
-<html>
-...
-</html>
 """
 ).strip()
 
 PROMPT_GENERATE = (
     """
-You are an expert web game developer. Your task is to create a complete, playable web game in a single HTML file based on the user's request, and provide instructions on how to play it.
+You are an expert web game developer and designer. Your job is to create a **fun, polished, and fully playable game** in a single HTML file based on the user's request.
 
 **Core Requirements:**
-- **Single File:** Generate a single HTML file with all CSS in `<style>` and all JS in `<script>`. No external files.
-- **Playable:** The game must be fully functional. Use the HTML Canvas API for 2D games.
+- **Single File & No External Assets:** Provide the complete game in one HTML file. All CSS in `<style>`, all JS in `<script>`. Do NOT use external images, fonts, or libraries. All visuals must be generated with code (Canvas, CSS, SVG). Any sounds must be generated with the Web Audio API.
+- **Polished Gameplay:** The game must be engaging, balanced, and bug-free. Add small design touches like smooth animations, clear win/lose states, scoring, and difficulty progression.
+- **Clean Code:** Write modular, readable JavaScript with helpful comments. Use `requestAnimationFrame` for the game loop.
+- **Responsiveness:** Ensure the game's canvas scales well to different screen sizes.
+- **Instructions First:** Provide clear player instructions first (between `[INSTRUCTIONS]` and `[END_INSTRUCTIONS]`), then the full HTML file.
 
 {INSTRUCTIONS_FORMAT}
 
@@ -137,25 +174,32 @@ Generate the response now.
 """
 ).strip()
 
+
 PROMPT_MODIFY = (
     """
-You are an expert web game developer. You are helping a user debug or modify a game you previously created.
+You are an expert web game developer. You are helping a user **improve or debug an existing game**.
 
-Here is the current, complete code of the game:
+**Conversation History:**
+{prompt_history}
+
+**Current Game Code:**
 ```html
 {current_code}
 ```
 
-Here are the latest browser console logs (if any) that may indicate errors/warnings:
+**Browser Console Logs (if any):**
 ```
 {console_logs}
 ```
 
-**User's Modification or Bug Report:** "{user_prompt}"
+**User's New Request:**
+"{user_prompt}"
 
 **Your Task:**
-1.  Analyze the user's request, the existing code, and any console logs.
-2.  Provide the complete, updated HTML file along with updated "How to Play" instructions that reflect the changes.
+1.  **Analyze the Request:** Carefully consider the user's request, the conversation history, the existing code, and any console errors.
+2.  **Debug & Implement:** Fix any bugs identified by the console logs or the user's description. Implement the requested features or changes.
+3.  **Refine & Polish:** Improve the code quality, visuals, animations, and overall gameplay feel. Ensure the game remains fully functional in a single HTML file.
+4.  **Provide Output:** Generate the complete, updated game. Start with the updated instructions between `[INSTRUCTIONS]` and `[END_INSTRUCTIONS]`, followed immediately by the full HTML code.
 
 {INSTRUCTIONS_FORMAT}
 
@@ -165,111 +209,64 @@ Generate the complete and updated response now.
 
 
 # --- FastAPI Application ---
-app = FastAPI(title="Gemini Game Generator", version="1.1.0")
+app = FastAPI(title="AI Game Generator", version="2.3.0")
 
-# Optional CORS for local dev / simple frontends
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=os.environ.get("CORS_ALLOW_ORIGINS", "*").split(","),
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=settings.cors_allow_origins.split(","),
+    allow_credentials=True, allow_methods=["*"], allow_headers=["*"],
 )
 
+# Initialize the main orchestrator
+model_manager = MultiModelManager(settings)
 
-# Initialize the Key Manager at import-time so failures are loud and early
-try:
-    key_manager = GeminiKeyManager()
-except ValueError as e:
-    # Don't call exit() in import-time code when deployed to ASGI; raise instead.
-    raise RuntimeError(f"FATAL: Could not start application. {e}") from e
-
-
-# Pydantic models for request bodies
 class GenerateRequest(BaseModel):
-    prompt: str = Field(..., min_length=1, description="User's natural-language game idea")
-
+    prompt: str = Field(..., min_length=1, max_length=1000)
 
 class ModifyRequest(BaseModel):
-    prompt: str = Field(..., min_length=1, description="Change request or bug report")
-    current_code: str = Field(..., min_length=1, description="Full HTML code to modify")
-    console_logs: str = Field("", description="Optional console logs captured from the browser")
+    prompt: str = Field(..., min_length=1, max_length=1000)
+    current_code: str = Field(..., min_length=1)
+    console_logs: str = ""
+    prompt_history: List[str] = Field(default_factory=list, description="The history of prompts for context.")
 
-
-# Static files mounting (if the directory exists)
-if STATIC_DIR.exists() and STATIC_DIR.is_dir():
-    app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
-else:
-    print(f"[Warn] Static directory '{STATIC_DIR}' not found. /static will not be served.")
-
+if settings.static_dir.exists() and settings.static_dir.is_dir():
+    app.mount("/static", StaticFiles(directory=str(settings.static_dir)), name="static")
 
 @app.get("/", response_class=HTMLResponse)
-async def read_root() -> HTMLResponse:
-    if INDEX_FILE.exists():
-        return HTMLResponse(content=INDEX_FILE.read_text(encoding="utf-8"), status_code=200)
-    # Provide a minimal landing page when static/index.html is missing
-    html = (
-        """
-        <!doctype html>
-        <html>
-          <head>
-            <meta charset='utf-8'>
-            <meta name='viewport' content='width=device-width, initial-scale=1'>
-            <title>Gemini Game Generator</title>
-            <style>
-              body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,'Helvetica Neue',Arial,'Noto Sans','Liberation Sans',sans-serif;padding:2rem;max-width:820px;margin:auto;}
-              pre{white-space:pre-wrap;word-wrap:break-word;background:#f6f8fa;border:1px solid #e5e7eb;border-radius:12px;padding:1rem}
-              code{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,'Liberation Mono','Courier New',monospace}
-              .muted{color:#6b7280}
-            </style>
-          </head>
-          <body>
-            <h1>Gemini Game Generator</h1>
-            <p class="muted">Place a custom frontend at <code>static/index.html</code> to replace this page.</p>
-            <pre><code>POST /generate {"prompt": "Make a Flappy Bird clone set in space"}
-POST /modify   {"prompt": "Make pipes move faster", "current_code": "<!DOCTYPE html>..."}</code></pre>
-          </body>
-        </html>
-        """
-    ).strip()
-    return HTMLResponse(content=html, status_code=200)
-
+async def read_root():
+    if settings.index_file.exists():
+        return HTMLResponse(content=settings.index_file.read_text(encoding="utf-8"))
+    return HTMLResponse("<h1>AI Game Generator Backend</h1><p>Static frontend not found.</p>")
 
 @app.get("/healthz", response_class=PlainTextResponse)
-async def healthz() -> PlainTextResponse:
-    return PlainTextResponse("ok", status_code=200)
-
+async def healthz():
+    return PlainTextResponse("ok")
 
 @app.post("/generate")
-async def generate_game(req: GenerateRequest):
-    try:
-        final_prompt = PROMPT_GENERATE.format(
-            INSTRUCTIONS_FORMAT=INSTRUCTIONS_FORMAT, user_prompt=req.prompt
-        )
-    except Exception as e:  # Extremely unlikely, but fail fast
-        raise HTTPException(status_code=500, detail=f"Prompt assembly failed: {e}") from e
-
-    async def streamer():
-        async for chunk in key_manager.generate_content_streaming(final_prompt):
-            yield chunk
-
-    return StreamingResponse(streamer(), media_type="text/plain; charset=utf-8")
-
+async def generate_game(req: GenerateRequest, request: Request):
+    final_prompt = PROMPT_GENERATE.format(
+        INSTRUCTIONS_FORMAT=INSTRUCTIONS_FORMAT, user_prompt=req.prompt
+    )
+    return StreamingResponse(
+        model_manager.generate_content_streaming(final_prompt, request),
+        media_type="text/plain; charset=utf-8"
+    )
 
 @app.post("/modify")
-async def modify_game(req: ModifyRequest):
-    try:
-        final_prompt = PROMPT_MODIFY.format(
-            user_prompt=req.prompt,
-            current_code=req.current_code,
-            console_logs=req.console_logs,
-            INSTRUCTIONS_FORMAT=INSTRUCTIONS_FORMAT,
-        )
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Prompt assembly failed: {e}") from e
+async def modify_game(req: ModifyRequest, request: Request):
+    if req.prompt_history:
+        history_str = "\n".join(f"- {p}" for p in req.prompt_history)
+    else:
+        history_str = "No history provided."
 
-    async def streamer():
-        async for chunk in key_manager.generate_content_streaming(final_prompt):
-            yield chunk
-
-    return StreamingResponse(streamer(), media_type="text/plain; charset=utf-8")
+    final_prompt = PROMPT_MODIFY.format(
+        user_prompt=req.prompt,
+        current_code=req.current_code,
+        console_logs=req.console_logs or "No console logs provided.",
+        prompt_history=history_str,
+        INSTRUCTIONS_FORMAT=INSTRUCTIONS_FORMAT,
+    )
+    return StreamingResponse(
+        model_manager.generate_content_streaming(final_prompt, request),
+        media_type="text/plain; charset=utf-8"
+    )

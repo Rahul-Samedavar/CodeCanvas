@@ -1,3 +1,5 @@
+<!-- START OF FILE index.html -->
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -10,21 +12,30 @@
     <div class="container">
         <div class="controls-panel">
             <h1>AI Web Game Generator</h1>
-            <p>Describe your game idea, and let Gemini build it for you in real-time.</p>
-            
+            <p>Describe your game idea, and let a powerful AI build it for you in real-time.</p>
+
             <div id="initial-generation">
-                <textarea id="prompt-input" placeholder="e.g., A simple Pong game with a red ball and blue paddles"></textarea>
+                <textarea id="prompt-input" placeholder="e.g., A simple breakout game where the paddle is controlled by the mouse"></textarea>
                 <button id="generate-btn">Generate Game</button>
             </div>
 
             <div id="modification-panel" class="hidden">
                 <h3>Modify Your Game</h3>
                 <p>Describe a change, add a feature, or report a bug.</p>
-                <textarea id="modification-input" placeholder="e.g., Make the ball move faster, or fix the collision bug with the top wall"></textarea>
-                <button id="modify-btn">Apply Modification</button>
-                <button id="download-btn">Download HTML</button>
+                <textarea id="modification-input" placeholder="e.g., Make the ball move faster, or add a scoring system"></textarea>
+                <!-- NEW: Console log display area -->
+                <div id="console-container" class="hidden">
+                    <label for="console-output">Live Console Logs:</label>
+                    <textarea id="console-output" readonly></textarea>
+                </div>
+                <div class="button-group">
+                    <button id="modify-btn">Apply Modification</button>
+                    <button id="download-btn">Download HTML</button>
+                    <button id="open-tab-btn">Open in New Tab</button>
+                </div>
             </div>
-             <div class="spinner-container hidden">
+
+            <div class="spinner-container hidden">
                 <div class="spinner"></div>
                 <p>AI is thinking...</p>
             </div>
@@ -36,13 +47,19 @@
         </div>
 
         <div class="output-panel">
-            <div class="code-container">
-                <h3>Generated Code</h3>
-                <pre><code id="code-output" class="language-html"></code></pre>
+            <div class="view-toggle">
+                <button id="toggle-preview-btn" class="active">Live Preview</button>
+                <button id="toggle-code-btn">Generated Code</button>
+                <!-- NEW: Copy Code button added -->
+                <button id="copy-code-btn">Copy Code</button>
+                <button id="refresh-preview-btn" class="hidden">Refresh Preview</button>
+            </div>
+
+            <div class="code-container hidden">
+                <textarea id="code-editor" spellcheck="false" placeholder="AI-generated code will appear here..."></textarea>
             </div>
             <div class="game-container">
-                <h3>Live Preview</h3>
-                <iframe id="game-iframe" sandbox="allow-scripts" title="Generated Game"></iframe>
+                <iframe id="game-iframe" sandbox="allow-scripts allow-pointer-lock allow-same-origin" title="Generated Game"></iframe>
             </div>
         </div>
     </div>
