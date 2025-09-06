@@ -93,7 +93,69 @@ document.addEventListener("DOMContentLoaded", () => {
   let currentSessionId = null;
   let clientSideAssets = new Map();
   const SESSIONS_STORAGE_KEY = "CodeCanvasSessions";
+  const DB_NAME = "CodeCanvasDB";
+  const DB_VERSION = 1;
+  const STORE_NAME = "sessions";
   const marked = window.marked;
+  let db = null;
+
+  // --- IndexedDB Functions ---
+  function initDB() {
+    return new Promise((resolve, reject) => {
+      const request = indexedDB.open(DB_NAME, DB_VERSION);
+      
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () => {
+        db = request.result;
+        resolve(db);
+      };
+      
+      request.onupgradeneeded = (event) => {
+        db = event.target.result;
+        if (!db.objectStoreNames.contains(STORE_NAME)) {
+          const store = db.createObjectStore(STORE_NAME, { keyPath: "id" });
+          store.createIndex("name", "name", { unique: false });
+          store.createIndex("savedAt", "savedAt", { unique: false });
+        }
+      };
+    });
+  }
+
+  async function saveSessionToDB(sessionData) {
+    if (!db) await initDB();
+    return new Promise((resolve, reject) => {
+      const transaction = db.transaction([STORE_NAME], "readwrite");
+      const store = transaction.objectStore(STORE_NAME);
+      const request = store.put(sessionData);
+      
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  async function getSessionsFromDB() {
+    if (!db) await initDB();
+    return new Promise((resolve, reject) => {
+      const transaction = db.transaction([STORE_NAME], "readonly");
+      const store = transaction.objectStore(STORE_NAME);
+      const request = store.getAll();
+      
+      request.onsuccess = () => resolve(request.result || []);
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  async function deleteSessionFromDB(sessionId) {
+    if (!db) await initDB();
+    return new Promise((resolve, reject) => {
+      const transaction = db.transaction([STORE_NAME], "readwrite");
+      const store = transaction.objectStore(STORE_NAME);
+      const request = store.delete(sessionId);
+      
+      request.onsuccess = () => resolve();
+      request.onerror = () => reject(request.error);
+    });
+  }
 
   // --- Core Functions ---
 
@@ -250,17 +312,41 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
+  async function deserializeAssets(assets) {
+    clientSideAssets.clear();
+    
+    for (const assetData of assets) {
+      try {
+        // Create blob directly from stored data
+        const blob = new Blob([assetData.data], { type: assetData.type });
+        
+        // Create a new File object
+        const file = new File([blob], assetData.fileName, { type: assetData.type });
+        
+        clientSideAssets.set(assetData.fileName, {
+          file: file,
+          blobUrl: URL.createObjectURL(blob)
+        });
+      } catch (error) {
+        console.error(`Failed to restore asset ${assetData.fileName}:`, error);
+      }
+    }
+    
+    // Update UI
+    renderSelectedFiles(generateFileList);
+    renderSelectedFiles(modifyFileList);
+  }
+
   // --- Event Handlers ---
 
-  // *** THE FIX: ADD THESE EVENT LISTENERS BACK ***
   loadSessionBtn.addEventListener("click", () => {
     populateSessionDropdown();
     openPopup(loadSessionPopup);
   });
+  
   saveSessionBtn.addEventListener("click", () => {
     openPopup(saveSessionPopup);
   });
-  // ***********************************************
 
   generateFileInput.addEventListener("change", (e) =>
     handleFileSelection(e, generateFileList)
@@ -519,74 +605,135 @@ document.addEventListener("DOMContentLoaded", () => {
     loadVersion(Number(e.target.value))
   );
 
-  function getSessions() {
+  async function populateSessionDropdown() {
     try {
-      return JSON.parse(localStorage.getItem(SESSIONS_STORAGE_KEY) || "[]");
-    } catch {
-      return [];
+      const sessions = await getSessionsFromDB();
+      if (sessions.length === 0) {
+        sessionSelect.innerHTML = '<option value="">No sessions</option>';
+        return;
+      }
+      
+      sessionSelect.innerHTML = sessions
+        .sort((a, b) => new Date(b.savedAt) - new Date(a.savedAt))
+        .map((s) => {
+          const assetCount = (s.assets && s.assets.length) || 0;
+          const assetInfo = assetCount > 0 ? ` (${assetCount} assets)` : '';
+          const savedDate = new Date(s.savedAt).toLocaleDateString();
+          return `<option value="${s.id}">${s.name}${assetInfo} - ${savedDate}</option>`;
+        })
+        .join("");
+    } catch (error) {
+      console.error('Error loading sessions:', error);
+      sessionSelect.innerHTML = '<option value="">Error loading sessions</option>';
     }
   }
-  function saveSessions(sessions) {
-    localStorage.setItem(SESSIONS_STORAGE_KEY, JSON.stringify(sessions));
-  }
-  function populateSessionDropdown() {
-    const sessions = getSessions();
-    sessionSelect.innerHTML = sessions.length
-      ? sessions
-          .map((s) => `<option value="${s.id}">${s.name}</option>`)
-          .join("")
-      : '<option value="">No sessions</option>';
-  }
 
-  function saveCurrentSession() {
+  async function saveCurrentSession() {
     const sessionName = sessionNameInput.value.trim();
     if (!sessionName) return alert("Please enter a name.");
     if (versionHistory.length === 0) return alert("Nothing to save.");
-    const sessions = getSessions();
-    const sessionIndex = sessions.findIndex((s) => s.id === currentSessionId);
-    if (sessionIndex > -1) {
-      sessions[sessionIndex] = {
-        ...sessions[sessionIndex],
+    
+    try {
+      saveSessionActionBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Saving...';
+      saveSessionActionBtn.disabled = true;
+      
+      // Convert assets to raw ArrayBuffer data (more efficient than base64)
+      const assets = [];
+      for (const [fileName, asset] of clientSideAssets.entries()) {
+        const arrayBuffer = await asset.file.arrayBuffer();
+        assets.push({
+          fileName: fileName,
+          data: arrayBuffer,
+          type: asset.file.type,
+          size: asset.file.size
+        });
+      }
+      
+      const sessionData = {
+        id: currentSessionId || Date.now(),
         name: sessionName,
         history: versionHistory,
+        assets: assets,
+        savedAt: new Date().toISOString()
       };
-    } else {
-      currentSessionId = Date.now();
-      sessions.push({
-        id: currentSessionId,
-        name: sessionName,
-        history: versionHistory,
-      });
-    }
-    saveSessions(sessions);
-    saveSessionActionBtn.innerHTML = '<i class="fas fa-check"></i> Saved!';
-    setTimeout(() => {
+      
+      await saveSessionToDB(sessionData);
+      currentSessionId = sessionData.id;
+      
+      saveSessionActionBtn.innerHTML = '<i class="fas fa-check"></i> Saved!';
+      setTimeout(() => {
+        saveSessionActionBtn.innerHTML = '<i class="fas fa-save"></i> Save';
+        saveSessionActionBtn.disabled = false;
+        closePopup(saveSessionPopup);
+      }, 1500);
+      
+    } catch (error) {
+      console.error('Error saving session:', error);
+      alert(`Failed to save session: ${error.message}`);
       saveSessionActionBtn.innerHTML = '<i class="fas fa-save"></i> Save';
-      closePopup(saveSessionPopup);
-    }, 1500);
+      saveSessionActionBtn.disabled = false;
+    }
   }
 
-  function loadSelectedSession() {
+  async function loadSelectedSession() {
     const sessionId = sessionSelect.value;
     if (!sessionId) return alert("Please select a session.");
-    const session = getSessions().find((s) => s.id === Number(sessionId));
-    if (session) {
-      versionHistory = session.history;
+    
+    try {
+      const sessions = await getSessionsFromDB();
+      const session = sessions.find((s) => s.id === Number(sessionId));
+      if (!session) return alert("Session not found.");
+      
+      loadSessionActionBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Loading...';
+      loadSessionActionBtn.disabled = true;
+      
+      // Load version history
+      versionHistory = session.history || [];
       currentSessionId = session.id;
+      
+      // Restore assets if they exist
+      if (session.assets && session.assets.length > 0) {
+        await deserializeAssets(session.assets);
+      } else {
+        // Clear assets if none were saved
+        clientSideAssets.forEach((asset) => URL.revokeObjectURL(asset.blobUrl));
+        clientSideAssets.clear();
+        renderSelectedFiles(generateFileList);
+        renderSelectedFiles(modifyFileList);
+      }
+      
       updateVersionHistoryUI();
-      if (versionHistory.length > 0) loadVersion(versionHistory.length - 1);
+      if (versionHistory.length > 0) {
+        loadVersion(versionHistory.length - 1);
+      }
+      
       showModificationPanel();
       closePopup(loadSessionPopup);
       if (window.innerWidth <= 768) closeSidebar();
+      
+      loadSessionActionBtn.innerHTML = '<i class="fas fa-upload"></i> Load';
+      loadSessionActionBtn.disabled = false;
+      
+    } catch (error) {
+      console.error("Failed to load session:", error);
+      alert(`Failed to load session: ${error.message}`);
+      loadSessionActionBtn.innerHTML = '<i class="fas fa-upload"></i> Load';
+      loadSessionActionBtn.disabled = false;
     }
   }
 
-  function deleteSelectedSession() {
+  async function deleteSelectedSession() {
     const sessionId = sessionSelect.value;
     if (!sessionId || !confirm("Delete this session?")) return;
-    saveSessions(getSessions().filter((s) => s.id !== Number(sessionId)));
-    populateSessionDropdown();
-    if (currentSessionId === Number(sessionId)) startNewSession();
+    
+    try {
+      await deleteSessionFromDB(Number(sessionId));
+      await populateSessionDropdown();
+      if (currentSessionId === Number(sessionId)) startNewSession();
+    } catch (error) {
+      console.error('Error deleting session:', error);
+      alert(`Failed to delete session: ${error.message}`);
+    }
   }
 
   function startNewSession() {
@@ -596,10 +743,13 @@ document.addEventListener("DOMContentLoaded", () => {
     sessionNameInput.value = "";
     promptInput.value = "";
     modificationInput.value = "";
+    
+    // Clean up existing assets
     clientSideAssets.forEach((asset) => URL.revokeObjectURL(asset.blobUrl));
     clientSideAssets.clear();
     renderSelectedFiles(generateFileList);
     renderSelectedFiles(modifyFileList);
+    
     codeEditor.value = "";
     updateIframe("");
     clearInfoPanels();
@@ -683,8 +833,29 @@ document.addEventListener("DOMContentLoaded", () => {
   }
   themeToggle.addEventListener("click", toggleTheme);
 
+  // --- Cleanup on Page Unload ---
+  window.addEventListener('beforeunload', () => {
+    // Clean up blob URLs to prevent memory leaks
+    clientSideAssets.forEach((asset) => {
+      URL.revokeObjectURL(asset.blobUrl);
+    });
+  });
+
   // Initial page load setup
-  initTheme();
-  initMobileMenu();
-  populateSessionDropdown();
+  async function initializeApp() {
+    try {
+      await initDB();
+      initTheme();
+      initMobileMenu();
+      await populateSessionDropdown();
+    } catch (error) {
+      console.error('Failed to initialize app:', error);
+      // Fallback to localStorage if IndexedDB fails
+      console.log('Falling back to localStorage...');
+      // You could implement localStorage fallback here if needed
+    }
+  }
+
+  // Initialize the app
+  initializeApp();
 });
