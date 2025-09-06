@@ -14,7 +14,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   const codeContainer = document.querySelector(".code-container");
   const previewContainer = document.querySelector(".preview-container");
-  const codeEditor = document.getElementById("code-editor");
+  const monacoContainer = document.getElementById("monaco-editor");
   const gameIframe = document.getElementById("game-iframe");
 
   const initialGenerationPanel = document.getElementById("initial-generation");
@@ -91,25 +91,28 @@ document.addEventListener("DOMContentLoaded", () => {
   let abortController = null;
   let versionHistory = [];
   let currentSessionId = null;
-  let clientSideAssets = new Map();
+  const clientSideAssets = new Map();
   const SESSIONS_STORAGE_KEY = "CodeCanvasSessions";
   const DB_NAME = "CodeCanvasDB";
   const DB_VERSION = 1;
   const STORE_NAME = "sessions";
-  const marked = window.marked;
+  let marked = null;
   let db = null;
+  let monacoEditor = null;
+  let monaco = null;
+  let lastScrollPosition = { lineNumber: 1, column: 1 };
 
   // --- IndexedDB Functions ---
   function initDB() {
     return new Promise((resolve, reject) => {
       const request = indexedDB.open(DB_NAME, DB_VERSION);
-      
+
       request.onerror = () => reject(request.error);
       request.onsuccess = () => {
         db = request.result;
         resolve(db);
       };
-      
+
       request.onupgradeneeded = (event) => {
         db = event.target.result;
         if (!db.objectStoreNames.contains(STORE_NAME)) {
@@ -127,7 +130,7 @@ document.addEventListener("DOMContentLoaded", () => {
       const transaction = db.transaction([STORE_NAME], "readwrite");
       const store = transaction.objectStore(STORE_NAME);
       const request = store.put(sessionData);
-      
+
       request.onsuccess = () => resolve(request.result);
       request.onerror = () => reject(request.error);
     });
@@ -139,7 +142,7 @@ document.addEventListener("DOMContentLoaded", () => {
       const transaction = db.transaction([STORE_NAME], "readonly");
       const store = transaction.objectStore(STORE_NAME);
       const request = store.getAll();
-      
+
       request.onsuccess = () => resolve(request.result || []);
       request.onerror = () => reject(request.error);
     });
@@ -151,14 +154,13 @@ document.addEventListener("DOMContentLoaded", () => {
       const transaction = db.transaction([STORE_NAME], "readwrite");
       const store = transaction.objectStore(STORE_NAME);
       const request = store.delete(sessionId);
-      
+
       request.onsuccess = () => resolve();
       request.onerror = () => reject(request.error);
     });
   }
 
   // --- Core Functions ---
-
   function cleanHtml(htmlString) {
     return htmlString
       .replace(/^```html\s*/, "")
@@ -169,10 +171,17 @@ document.addEventListener("DOMContentLoaded", () => {
   async function streamResponse(url, body, targetElement) {
     setLoading(true, url);
     if (!targetElement) {
-      // Don't clear panels for /explain requests
-      setView("preview");
-      codeEditor.value = "";
+      setView("code");
+      if (monacoEditor) {
+        monacoEditor.setValue("");
+      }
       clearInfoPanels();
+      if (body instanceof FormData && body.has("files")) {
+        const spinnerText = spinner.querySelector(".spinner-text");
+        if (spinnerText) {
+          spinnerText.textContent = "Parsing files…";
+        }
+      }
     }
     let currentFullText = "";
     if (abortController) abortController.abort();
@@ -198,7 +207,12 @@ document.addEventListener("DOMContentLoaded", () => {
         const chunk = decoder.decode(value, { stream: true });
         currentFullText += chunk;
         if (targetElement) {
-          targetElement.innerHTML = marked.parse(currentFullText);
+          if (marked && marked.parse) {
+            targetElement.innerHTML = marked.parse(currentFullText);
+          } else {
+            targetElement.textContent = currentFullText;
+          }
+          targetElement.scrollTop = targetElement.scrollHeight;
         } else {
           updateUIFromStream(currentFullText);
         }
@@ -207,10 +221,15 @@ document.addEventListener("DOMContentLoaded", () => {
       if (!targetElement) {
         const prompt = isFormData ? body.get("prompt") : body.prompt;
         const finalData = parseFullResponse(currentFullText);
-        codeEditor.value = finalData.html;
+        if (monacoEditor) {
+          monacoEditor.setValue(finalData.html);
+        }
         updateIframe(finalData.html);
         saveVersion({ ...finalData, prompt: prompt });
         showModificationPanel();
+        setTimeout(() => {
+          minimizeInfoPanels();
+        }, 2000);
       }
     } catch (error) {
       if (error.name !== "AbortError") {
@@ -218,7 +237,11 @@ document.addEventListener("DOMContentLoaded", () => {
         if (targetElement) {
           targetElement.textContent = "Error: Could not get response.";
         } else {
-          codeEditor.value = `Error: Failed to get response. Check console.`;
+          if (monacoEditor) {
+            monacoEditor.setValue(
+              `Error: Failed to get response. Check console.`
+            );
+          }
           setView("code");
         }
       }
@@ -258,20 +281,65 @@ document.addEventListener("DOMContentLoaded", () => {
   function updateUIFromStream(fullText) {
     const { analysis, changes, instructions, html } =
       parseFullResponse(fullText);
+
     if (analysis) {
       analysisContainer.classList.remove("hidden");
-      aiAnalysis.innerHTML = marked.parse(analysis);
+      const spinnerText = spinner.querySelector(".spinner-text");
+      if (spinnerText && !spinner.classList.contains("hidden")) {
+        spinnerText.textContent = "Summoning ideas…";
+      }
+      if (marked && marked.parse) {
+        aiAnalysis.innerHTML = marked.parse(analysis);
+      } else {
+        aiAnalysis.textContent = analysis;
+      }
+      aiAnalysis.scrollTop = aiAnalysis.scrollHeight;
+      analysisContainer.open = true;
     }
+
     if (changes) {
       changesContainer.classList.remove("hidden");
-      summaryOfChanges.innerHTML = marked.parse(changes);
+      const spinnerText = spinner.querySelector(".spinner-text");
+      if (spinnerText && !spinner.classList.contains("hidden")) {
+        spinnerText.textContent = "Sketching the blueprint…";
+      }
+      if (marked && marked.parse) {
+        summaryOfChanges.innerHTML = marked.parse(changes);
+      } else {
+        summaryOfChanges.textContent = changes;
+      }
+      summaryOfChanges.scrollTop = summaryOfChanges.scrollHeight;
+      changesContainer.open = true;
     }
+
     if (instructions) {
       instructionsContainer.classList.remove("hidden");
-      gameInstructions.innerHTML = marked.parse(instructions);
+      const spinnerText = spinner.querySelector(".spinner-text");
+      if (spinnerText && !spinner.classList.contains("hidden")) {
+        spinnerText.textContent = "Writing the playbook…";
+      }
+      if (marked && marked.parse) {
+        gameInstructions.innerHTML = marked.parse(instructions);
+      } else {
+        gameInstructions.textContent = instructions;
+      }
+      gameInstructions.scrollTop = gameInstructions.scrollHeight;
+      instructionsContainer.open = true;
     }
+
     if (html) {
-      codeEditor.value = html;
+      const spinnerText = spinner.querySelector(".spinner-text");
+      if (spinnerText && !spinner.classList.contains("hidden")) {
+        spinnerText.textContent = "Forging the canvas…";
+      }
+      if (monacoEditor) {
+        monacoEditor.setValue(html);
+        setTimeout(() => {
+          const lineCount = monacoEditor.getModel().getLineCount();
+          monacoEditor.revealLine(lineCount);
+          monacoEditor.setPosition({ lineNumber: lineCount, column: 1 });
+        }, 100);
+      }
     }
   }
 
@@ -314,36 +382,32 @@ document.addEventListener("DOMContentLoaded", () => {
 
   async function deserializeAssets(assets) {
     clientSideAssets.clear();
-    
+
     for (const assetData of assets) {
       try {
-        // Create blob directly from stored data
         const blob = new Blob([assetData.data], { type: assetData.type });
-        
-        // Create a new File object
-        const file = new File([blob], assetData.fileName, { type: assetData.type });
-        
+        const file = new File([blob], assetData.fileName, {
+          type: assetData.type,
+        });
         clientSideAssets.set(assetData.fileName, {
           file: file,
-          blobUrl: URL.createObjectURL(blob)
+          blobUrl: URL.createObjectURL(blob),
         });
       } catch (error) {
         console.error(`Failed to restore asset ${assetData.fileName}:`, error);
       }
     }
-    
-    // Update UI
+
     renderSelectedFiles(generateFileList);
     renderSelectedFiles(modifyFileList);
   }
 
   // --- Event Handlers ---
-
   loadSessionBtn.addEventListener("click", () => {
     populateSessionDropdown();
     openPopup(loadSessionPopup);
   });
-  
+
   saveSessionBtn.addEventListener("click", () => {
     openPopup(saveSessionPopup);
   });
@@ -374,7 +438,7 @@ document.addEventListener("DOMContentLoaded", () => {
   modifyBtn.addEventListener("click", () => {
     const prompt = modificationInput.value.trim();
     if (!prompt) return alert("Please describe your modification!");
-    const currentHtml = codeEditor.value;
+    const currentHtml = monacoEditor ? monacoEditor.getValue() : "";
     if (!currentHtml) return alert("There is no code to modify!");
     const formData = new FormData();
     formData.append("prompt", prompt);
@@ -391,7 +455,7 @@ document.addEventListener("DOMContentLoaded", () => {
   followUpBtn.addEventListener("click", () => {
     const question = followUpInput.value.trim();
     if (!question) return alert("Please ask a question!");
-    const currentHtml = codeEditor.value;
+    const currentHtml = monacoEditor ? monacoEditor.getValue() : "";
     if (!currentHtml) return alert("There is no code to ask about!");
     followUpOutputContainer.classList.remove("hidden");
     followUpOutput.innerHTML = "";
@@ -403,7 +467,7 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   downloadBtn.addEventListener("click", async () => {
-    const html = codeEditor.value;
+    const html = monacoEditor ? monacoEditor.getValue() : "";
     if (!html) return alert("No code to download!");
     if (clientSideAssets.size === 0) {
       const blob = new Blob([html], { type: "text/html" });
@@ -441,7 +505,7 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   openTabBtn.addEventListener("click", () => {
-    const html = codeEditor.value;
+    const html = monacoEditor ? monacoEditor.getValue() : "";
     if (!html) return alert("No code to open!");
     const processedHtml = replaceAssetPathsWithBlobs(html);
     const blob = new Blob([processedHtml], { type: "text/html" });
@@ -450,7 +514,7 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   copyCodeBtn.addEventListener("click", async () => {
-    const code = codeEditor.value;
+    const code = monacoEditor ? monacoEditor.getValue() : "";
     if (!code) return;
     try {
       await navigator.clipboard.writeText(code);
@@ -466,17 +530,25 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   refreshPreviewBtn.addEventListener("click", () => {
-    updateIframe(codeEditor.value);
+    const code = monacoEditor ? monacoEditor.getValue() : "";
+    updateIframe(code);
     setView("preview");
   });
 
-  // --- UI and State Management Functions ---
+  togglePreviewBtn.addEventListener("click", () => {
+    setView("preview");
+  });
 
+  toggleCodeBtn.addEventListener("click", () => {
+    setView("code");
+  });
+
+  // --- UI and State Management Functions ---
   function replaceAssetPathsWithBlobs(htmlContent) {
     if (clientSideAssets.size === 0) return htmlContent;
     let processedHtml = htmlContent;
     clientSideAssets.forEach((asset, fileName) => {
-      const safeFileName = fileName.replace(/[-\/\\^$*+?.()|[\]{}]/g, "\\$&");
+      const safeFileName = fileName.replace(/[-/\\^$*+?.()|[\]{}]/g, "\\$&");
       const regex = new RegExp(`(['"])assets/${safeFileName}\\1`, "g");
       processedHtml = processedHtml.replace(regex, `$1${asset.blobUrl}$1`);
     });
@@ -495,7 +567,25 @@ document.addEventListener("DOMContentLoaded", () => {
     consoleLogs = [];
     updateConsoleDisplay();
     const processedHtml = replaceAssetPathsWithBlobs(htmlContent);
-    gameIframe.srcdoc = consoleLoggerScript + processedHtml;
+
+    const enhancedHtml = `
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <style>
+        html, body { 
+          margin: 0; 
+          padding: 0; 
+          overflow-x: auto; 
+          overflow-y: auto; 
+          min-height: 100vh;
+          box-sizing: border-box;
+        }
+        * { box-sizing: border-box; }
+      </style>
+      ${consoleLoggerScript}
+      ${processedHtml}
+    `;
+
+    gameIframe.srcdoc = enhancedHtml;
   }
 
   window.addEventListener("message", (event) => {
@@ -515,15 +605,36 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   function setView(view) {
+    if (view === "code" && monacoEditor) {
+      lastScrollPosition = monacoEditor.getPosition() || {
+        lineNumber: 1,
+        column: 1,
+      };
+    }
+
     previewContainer.classList.toggle("hidden", view !== "preview");
     codeContainer.classList.toggle("hidden", view === "preview");
     togglePreviewBtn.classList.toggle("active", view === "preview");
     toggleCodeBtn.classList.toggle("active", view !== "preview");
     refreshPreviewBtn.classList.toggle("hidden", view === "preview");
-  }
 
-  togglePreviewBtn.addEventListener("click", () => setView("preview"));
-  toggleCodeBtn.addEventListener("click", () => setView("code"));
+    if (view === "code" && monacoEditor) {
+      setTimeout(() => {
+        monacoEditor.layout();
+        monacoEditor.setPosition(lastScrollPosition);
+        monacoEditor.revealPosition(lastScrollPosition);
+      }, 100);
+    }
+
+    if (view === "preview") {
+      setTimeout(() => {
+        const iframe = document.getElementById("game-iframe");
+        if (iframe && iframe.contentWindow) {
+          iframe.style.height = "100%";
+        }
+      }, 100);
+    }
+  }
 
   function setLoading(isLoading, url) {
     if (url === "/explain") {
@@ -533,6 +644,19 @@ document.addEventListener("DOMContentLoaded", () => {
       spinner.classList.toggle("hidden", !isLoading);
       generateBtn.disabled = isLoading;
       modifyBtn.disabled = isLoading;
+
+      const spinnerText = spinner.querySelector(".spinner-text");
+      if (spinnerText) {
+        if (isLoading) {
+          if (url === "/generate") {
+            spinnerText.textContent = "Summoning ideas…";
+          } else if (url === "/modify") {
+            spinnerText.textContent = "Forging the canvas…";
+          }
+        } else {
+          spinnerText.textContent = "AI is crafting your code...";
+        }
+      }
     }
   }
 
@@ -551,6 +675,22 @@ document.addEventListener("DOMContentLoaded", () => {
     aiAnalysis.innerHTML = "";
     summaryOfChanges.innerHTML = "";
     gameInstructions.innerHTML = "";
+  }
+
+  function updateCodeDisplay(code) {
+    if (codeContainer && window.Prism) {
+      codeContainer.textContent = code;
+      window.Prism.highlightElement(codeContainer);
+    }
+  }
+
+  function minimizeInfoPanels() {
+    [analysisContainer, changesContainer].forEach((panel) => {
+      if (!panel.classList.contains("hidden")) {
+        panel.open = false;
+        panel.classList.add("minimized");
+      }
+    });
   }
 
   // --- Session, Version, and UI Initialization ---
@@ -583,20 +723,34 @@ document.addEventListener("DOMContentLoaded", () => {
   function loadVersion(index) {
     const version = versionHistory[index];
     if (!version) return;
-    codeEditor.value = version.html || "";
+    if (monacoEditor) {
+      monacoEditor.setValue(version.html || "");
+    }
     updateIframe(version.html || "");
     clearInfoPanels();
     if (version.analysis) {
       analysisContainer.classList.remove("hidden");
-      aiAnalysis.innerHTML = marked.parse(version.analysis);
+      if (marked && marked.parse) {
+        aiAnalysis.innerHTML = marked.parse(version.analysis);
+      } else {
+        aiAnalysis.textContent = version.analysis;
+      }
     }
     if (version.changes) {
       changesContainer.classList.remove("hidden");
-      summaryOfChanges.innerHTML = marked.parse(version.changes);
+      if (marked && marked.parse) {
+        summaryOfChanges.innerHTML = marked.parse(version.changes);
+      } else {
+        summaryOfChanges.textContent = version.changes;
+      }
     }
     if (version.instructions) {
       instructionsContainer.classList.remove("hidden");
-      gameInstructions.innerHTML = marked.parse(version.instructions);
+      if (marked && marked.parse) {
+        gameInstructions.innerHTML = marked.parse(version.instructions);
+      } else {
+        gameInstructions.textContent = version.instructions;
+      }
     }
     promptHistory = versionHistory.slice(0, index + 1).map((v) => v.prompt);
   }
@@ -612,19 +766,20 @@ document.addEventListener("DOMContentLoaded", () => {
         sessionSelect.innerHTML = '<option value="">No sessions</option>';
         return;
       }
-      
+
       sessionSelect.innerHTML = sessions
         .sort((a, b) => new Date(b.savedAt) - new Date(a.savedAt))
         .map((s) => {
           const assetCount = (s.assets && s.assets.length) || 0;
-          const assetInfo = assetCount > 0 ? ` (${assetCount} assets)` : '';
+          const assetInfo = assetCount > 0 ? ` (${assetCount} assets)` : "";
           const savedDate = new Date(s.savedAt).toLocaleDateString();
           return `<option value="${s.id}">${s.name}${assetInfo} - ${savedDate}</option>`;
         })
         .join("");
     } catch (error) {
-      console.error('Error loading sessions:', error);
-      sessionSelect.innerHTML = '<option value="">Error loading sessions</option>';
+      console.error("Error loading sessions:", error);
+      sessionSelect.innerHTML =
+        '<option value="">Error loading sessions</option>';
     }
   }
 
@@ -632,12 +787,12 @@ document.addEventListener("DOMContentLoaded", () => {
     const sessionName = sessionNameInput.value.trim();
     if (!sessionName) return alert("Please enter a name.");
     if (versionHistory.length === 0) return alert("Nothing to save.");
-    
+
     try {
-      saveSessionActionBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Saving...';
+      saveSessionActionBtn.innerHTML =
+        '<i class="fas fa-spinner fa-spin"></i> Saving...';
       saveSessionActionBtn.disabled = true;
-      
-      // Convert assets to raw ArrayBuffer data (more efficient than base64)
+
       const assets = [];
       for (const [fileName, asset] of clientSideAssets.entries()) {
         const arrayBuffer = await asset.file.arrayBuffer();
@@ -645,30 +800,29 @@ document.addEventListener("DOMContentLoaded", () => {
           fileName: fileName,
           data: arrayBuffer,
           type: asset.file.type,
-          size: asset.file.size
+          size: asset.file.size,
         });
       }
-      
+
       const sessionData = {
         id: currentSessionId || Date.now(),
         name: sessionName,
         history: versionHistory,
         assets: assets,
-        savedAt: new Date().toISOString()
+        savedAt: new Date().toISOString(),
       };
-      
+
       await saveSessionToDB(sessionData);
       currentSessionId = sessionData.id;
-      
+
       saveSessionActionBtn.innerHTML = '<i class="fas fa-check"></i> Saved!';
       setTimeout(() => {
         saveSessionActionBtn.innerHTML = '<i class="fas fa-save"></i> Save';
         saveSessionActionBtn.disabled = false;
         closePopup(saveSessionPopup);
       }, 1500);
-      
     } catch (error) {
-      console.error('Error saving session:', error);
+      console.error("Error saving session:", error);
       alert(`Failed to save session: ${error.message}`);
       saveSessionActionBtn.innerHTML = '<i class="fas fa-save"></i> Save';
       saveSessionActionBtn.disabled = false;
@@ -678,42 +832,39 @@ document.addEventListener("DOMContentLoaded", () => {
   async function loadSelectedSession() {
     const sessionId = sessionSelect.value;
     if (!sessionId) return alert("Please select a session.");
-    
+
     try {
       const sessions = await getSessionsFromDB();
       const session = sessions.find((s) => s.id === Number(sessionId));
       if (!session) return alert("Session not found.");
-      
-      loadSessionActionBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Loading...';
+
+      loadSessionActionBtn.innerHTML =
+        '<i class="fas fa-spinner fa-spin"></i> Loading...';
       loadSessionActionBtn.disabled = true;
-      
-      // Load version history
+
       versionHistory = session.history || [];
       currentSessionId = session.id;
-      
-      // Restore assets if they exist
+
       if (session.assets && session.assets.length > 0) {
         await deserializeAssets(session.assets);
       } else {
-        // Clear assets if none were saved
         clientSideAssets.forEach((asset) => URL.revokeObjectURL(asset.blobUrl));
         clientSideAssets.clear();
         renderSelectedFiles(generateFileList);
         renderSelectedFiles(modifyFileList);
       }
-      
+
       updateVersionHistoryUI();
       if (versionHistory.length > 0) {
         loadVersion(versionHistory.length - 1);
       }
-      
+
       showModificationPanel();
       closePopup(loadSessionPopup);
       if (window.innerWidth <= 768) closeSidebar();
-      
+
       loadSessionActionBtn.innerHTML = '<i class="fas fa-upload"></i> Load';
       loadSessionActionBtn.disabled = false;
-      
     } catch (error) {
       console.error("Failed to load session:", error);
       alert(`Failed to load session: ${error.message}`);
@@ -725,13 +876,13 @@ document.addEventListener("DOMContentLoaded", () => {
   async function deleteSelectedSession() {
     const sessionId = sessionSelect.value;
     if (!sessionId || !confirm("Delete this session?")) return;
-    
+
     try {
       await deleteSessionFromDB(Number(sessionId));
       await populateSessionDropdown();
       if (currentSessionId === Number(sessionId)) startNewSession();
     } catch (error) {
-      console.error('Error deleting session:', error);
+      console.error("Error deleting session:", error);
       alert(`Failed to delete session: ${error.message}`);
     }
   }
@@ -743,14 +894,15 @@ document.addEventListener("DOMContentLoaded", () => {
     sessionNameInput.value = "";
     promptInput.value = "";
     modificationInput.value = "";
-    
-    // Clean up existing assets
+
     clientSideAssets.forEach((asset) => URL.revokeObjectURL(asset.blobUrl));
     clientSideAssets.clear();
     renderSelectedFiles(generateFileList);
     renderSelectedFiles(modifyFileList);
-    
-    codeEditor.value = "";
+
+    if (monacoEditor) {
+      monacoEditor.setValue("");
+    }
     updateIframe("");
     clearInfoPanels();
     initialGenerationPanel.classList.remove("hidden");
@@ -819,6 +971,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const theme = localStorage.getItem("theme") || "light";
     document.documentElement.setAttribute("data-theme", theme);
     updateThemeIcon(theme);
+    updateMonacoTheme(theme);
   }
   function toggleTheme() {
     const current = document.documentElement.getAttribute("data-theme");
@@ -826,36 +979,124 @@ document.addEventListener("DOMContentLoaded", () => {
     document.documentElement.setAttribute("data-theme", next);
     localStorage.setItem("theme", next);
     updateThemeIcon(next);
+    updateMonacoTheme(next);
   }
   function updateThemeIcon(theme) {
     themeToggle.querySelector("i").className =
       theme === "dark" ? "fas fa-sun" : "fas fa-moon";
   }
-  themeToggle.addEventListener("click", toggleTheme);
 
-  // --- Cleanup on Page Unload ---
-  window.addEventListener('beforeunload', () => {
-    // Clean up blob URLs to prevent memory leaks
-    clientSideAssets.forEach((asset) => {
-      URL.revokeObjectURL(asset.blobUrl);
+  function updateMonacoTheme(theme) {
+    if (monacoEditor && monaco) {
+      const monacoTheme = theme === "dark" ? "vs-dark" : "vs";
+      monaco.editor.setTheme(monacoTheme);
+    }
+  }
+
+  function initializeMonacoEditor() {
+    if (typeof require === "undefined") {
+      console.error("Monaco Editor loader not available");
+      return;
+    }
+
+    require.config({
+      paths: {
+        vs: "https://cdn.jsdelivr.net/npm/monaco-editor@0.44.0/min/vs",
+      },
     });
-  });
 
-  // Initial page load setup
+    require(["vs/editor/editor.main"], () => {
+      try {
+        monaco = window.monaco;
+        const currentTheme =
+          document.documentElement.getAttribute("data-theme") || "light";
+        const monacoTheme = currentTheme === "dark" ? "vs-dark" : "vs";
+
+        monacoEditor = monaco.editor.create(monacoContainer, {
+          value:
+            "// AI-generated code will appear here...\n// Start by describing your idea in the sidebar!",
+          language: "html",
+          theme: monacoTheme,
+          automaticLayout: true,
+          minimap: { enabled: false },
+          scrollBeyondLastLine: false,
+          wordWrap: "on",
+          fontSize: 14,
+          lineNumbers: "on",
+          folding: true,
+          bracketMatching: "always",
+          autoIndent: "full",
+          formatOnPaste: true,
+          formatOnType: true,
+        });
+
+        monacoEditor.onDidChangeCursorPosition((e) => {
+          lastScrollPosition = e.position;
+        });
+
+        // Listen for content changes
+        monacoEditor.onDidChangeModelContent(() => {
+          // Auto-save or other functionality can be added here
+        });
+
+        console.log("Monaco Editor initialized successfully");
+      } catch (error) {
+        console.error("Failed to initialize Monaco Editor:", error);
+      }
+    }, (error) => {
+      console.error("Failed to load Monaco Editor:", error);
+    });
+  }
+
+  // Initialize the app
   async function initializeApp() {
     try {
+      // Initialize marked library first
+      if (!initializeMarked()) {
+        console.warn(
+          "Marked library not available, falling back to plain text"
+        );
+      }
+
       await initDB();
       initTheme();
       initMobileMenu();
       await populateSessionDropdown();
+
+      // Initialize Monaco Editor with delay to ensure DOM is ready
+      setTimeout(() => {
+        initializeMonacoEditor();
+      }, 100);
+
+      console.log("App initialized successfully");
     } catch (error) {
-      console.error('Failed to initialize app:', error);
-      // Fallback to localStorage if IndexedDB fails
-      console.log('Falling back to localStorage...');
-      // You could implement localStorage fallback here if needed
+      console.error("Failed to initialize app:", error);
+      console.log("Some features may not work properly");
     }
   }
 
-  // Initialize the app
+  function initializeMarked() {
+    if (window.marked) {
+      marked = window.marked;
+      return true;
+    }
+    console.error("Marked library not loaded");
+    return false;
+  }
+
+  followupBtn.addEventListener("click", () => {
+    openPopup(followupPopup);
+  });
+
+  function initEventListeners() {
+    // Theme toggle
+    if (themeToggle) {
+      themeToggle.addEventListener("click", toggleTheme);
+    }
+  }
+
+  initTheme();
+  initEventListeners();
+
   initializeApp();
 });

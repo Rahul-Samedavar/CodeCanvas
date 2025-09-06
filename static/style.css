@@ -53,6 +53,11 @@
   --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.3), 0 2px 4px -2px rgb(0 0 0 / 0.3);
   --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.3), 0 4px 6px -4px rgb(0 0 0 / 0.3);
   --shadow-xl: 0 20px 25px -5px rgb(0 0 0 / 0.3), 0 8px 10px -6px rgb(0 0 0 / 0.3);
+  --radius: 8px;
+  --radius-sm: 4px;
+  --radius-lg: 12px;
+  --transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-slow: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   --muted-foreground: #94a3b8;
   --foreground: #f1f5f9;
   --card: #1e293b;
@@ -490,52 +495,48 @@ body {
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
+  margin-bottom: 1rem;
 }
 
 .info-panel {
-  margin-bottom: 0.75rem;
-  border-radius: 0.5rem;
+  border-radius: var(--radius);
   overflow: hidden;
   transition: all 0.3s ease;
 }
 
-.info-panel:not([open]) {
-  background: rgba(255, 255, 255, 0.03);
+.info-panel.minimized {
+  opacity: 0.7;
 }
 
-.info-panel[open] {
-  background: rgba(255, 255, 255, 0.05);
+.info-panel.minimized:not([open]) {
+  transform: scale(0.98);
+}
+
+.info-panel-dull {
+  opacity: 0.8;
 }
 
 .info-header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  gap: 0.75rem;
   padding: 0.75rem 1rem;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
   cursor: pointer;
   font-weight: 500;
-  font-size: 0.875rem;
-  color: var(--foreground);
+  color: var(--text-primary);
   transition: all 0.2s ease;
-  list-style: none;
-}
-
-.info-header::-webkit-details-marker {
-  display: none;
 }
 
 .info-header:hover {
-  background: rgba(255, 255, 255, 0.05);
-}
-
-.info-header i:first-child {
-  color: var(--primary);
-  margin-right: 0.5rem;
+  background: var(--bg-tertiary);
+  border-color: var(--primary);
 }
 
 .info-header i:last-child {
+  margin-left: auto;
   transition: transform 0.2s ease;
-  color: var(--muted-foreground);
 }
 
 .info-panel[open] .info-header i:last-child {
@@ -543,62 +544,33 @@ body {
 }
 
 .info-content {
-  padding: 1rem 1rem 1rem 2rem;
-  color: var(--muted-foreground);
+  padding: 1rem;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-top: none;
   font-size: 0.875rem;
-  line-height: 1.5;
-  border-top: 1px solid rgba(255, 255, 255, 0.1);
-  animation: slideDown 0.3s ease;
+  line-height: 1.6;
 }
 
-@keyframes slideDown {
-  from {
-    opacity: 0;
-    transform: translateY(-10px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
+/* Auto-scroll styles for info panels */
+.auto-scroll {
+  max-height: 200px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
 }
 
-.info-panel.thinking {
-  background: rgba(var(--primary), 0.1);
-  border: 1px solid rgba(var(--primary), 0.2);
+.auto-scroll::-webkit-scrollbar {
+  width: 4px;
 }
 
-.info-panel.thinking .info-header {
-  background: rgba(var(--primary), 0.05);
+.auto-scroll::-webkit-scrollbar-track {
+  background: transparent;
 }
 
-.info-content.partial {
-  max-height: 3rem;
-  overflow: hidden;
-  position: relative;
-}
-
-.info-content.partial::after {
-  content: "";
-  position: absolute;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  height: 1rem;
-  background: linear-gradient(transparent, var(--card));
-}
-
-/* Added dull styling for AI thoughts and changes summary panels */
-.info-panel-dull {
-  opacity: 0.6;
-}
-
-.info-panel-dull .info-header {
-  color: var(--muted-foreground);
-}
-
-.info-panel-dull .info-content {
-  color: var(--muted-foreground);
-  opacity: 0.8;
+.auto-scroll::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 2px;
 }
 
 /* Main Content */
@@ -711,34 +683,29 @@ body {
   inset: 0;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
 }
 
 .code-editor-wrapper {
   flex: 1;
   position: relative;
-  background: #1a1a1a;
+  background: #1e1e1e;
   border-radius: var(--radius);
   margin: 1rem;
   overflow: hidden;
   box-shadow: var(--shadow-lg);
+  min-height: 0;
+  height: 100%;
+  min-height: 500px;
+  max-height: calc(100vh - 200px);
 }
 
-.code-editor {
+.monaco-editor-container {
   width: 100%;
   height: 100%;
-  padding: 1.5rem;
-  background: #1a1a1a;
-  color: #f8f8f2;
-  border: none;
-  font-family: "Monaco", "Menlo", "Ubuntu Mono", monospace;
-  font-size: 0.875rem;
-  line-height: 1.6;
-  resize: none;
-  outline: none;
-}
-
-.code-editor::placeholder {
-  color: #6272a4;
+  min-height: 500px;
+  max-height: calc(100vh - 200px);
+  overflow: hidden;
 }
 
 /* Preview */
@@ -747,6 +714,7 @@ body {
   inset: 0;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
 }
 
 .preview-wrapper {
@@ -757,6 +725,10 @@ body {
   margin: 1rem;
   overflow: hidden;
   box-shadow: var(--shadow-lg);
+  min-height: 0;
+  height: 100%;
+  min-height: 500px;
+  max-height: calc(100vh - 200px);
 }
 
 .preview-iframe {
@@ -764,6 +736,29 @@ body {
   height: 100%;
   border: none;
   background: white;
+  overflow: auto;
+  min-height: 500px;
+  max-height: calc(100vh - 200px);
+  display: block;
+  scrollbar-width: thin;
+  scrollbar-color: #888 #f1f1f1;
+}
+
+.preview-iframe::-webkit-scrollbar {
+  width: 8px;
+}
+
+.preview-iframe::-webkit-scrollbar-track {
+  background: #f1f1f1;
+}
+
+.preview-iframe::-webkit-scrollbar-thumb {
+  background: #888;
+  border-radius: 4px;
+}
+
+.preview-iframe::-webkit-scrollbar-thumb:hover {
+  background: #555;
 }
 
 .preview-placeholder {
@@ -880,6 +875,17 @@ body {
   .session-btn {
     padding: 0.5rem;
     min-width: 40px;
+  }
+
+  .followup-float {
+    bottom: 1rem;
+    right: 1rem;
+  }
+
+  .followup-btn {
+    width: 48px;
+    height: 48px;
+    font-size: 1.1rem;
   }
 }
 
@@ -1116,26 +1122,32 @@ body {
   bottom: 2rem;
   right: 2rem;
   z-index: 100;
-  display: none;
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(20px);
+  transition: all 0.3s ease;
 }
 
 .followup-float.show {
-  display: block;
-  animation: bounceIn 0.5s ease-out;
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
 }
 
 .followup-btn {
-  width: 60px;
-  height: 60px;
+  width: 56px;
+  height: 56px;
   border-radius: 50%;
-  background: linear-gradient(135deg, var(--accent), var(--primary));
-  border: none;
+  background: var(--primary);
   color: white;
-  font-size: 1.5rem;
+  border: none;
   cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.25rem;
   box-shadow: var(--shadow-lg);
-  transition: var(--transition);
-  position: relative;
+  transition: all 0.2s ease;
 }
 
 .followup-btn:hover {
@@ -1143,54 +1155,27 @@ body {
   box-shadow: var(--shadow-xl);
 }
 
-.followup-btn:hover + .followup-tooltip {
-  opacity: 1;
-  transform: translateX(-50%) translateY(-10px);
-}
-
 .followup-tooltip {
   position: absolute;
-  bottom: 70px;
-  left: 50%;
-  transform: translateX(-50%);
-  background: var(--bg-secondary);
-  color: var(--text-primary);
+  bottom: 100%;
+  right: 0;
+  margin-bottom: 0.5rem;
   padding: 0.5rem 0.75rem;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
   border-radius: var(--radius);
-  font-size: 0.75rem;
+  font-size: 0.875rem;
   white-space: nowrap;
-  box-shadow: var(--shadow-md);
   opacity: 0;
-  transition: var(--transition);
-  pointer-events: none;
+  visibility: hidden;
+  transform: translateY(10px);
+  transition: all 0.2s ease;
 }
 
-/* Enhanced Animations */
-.pulse-on-hover {
-  position: relative;
-  overflow: hidden;
-}
-
-.pulse-on-hover::before {
-  content: "";
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  width: 0;
-  height: 0;
-  background: rgba(255, 255, 255, 0.3);
-  border-radius: 50%;
-  transform: translate(-50%, -50%);
-  transition: width 0.6s, height 0.6s;
-}
-
-.pulse-on-hover:hover::before {
-  width: 300px;
-  height: 300px;
-}
-
-.floating-icon {
-  animation: float 3s ease-in-out infinite;
+.followup-float:hover .followup-tooltip {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
 }
 
 /* Sidebar Overlay for Mobile */
@@ -1276,64 +1261,87 @@ body {
   background: rgba(30, 41, 59, 0.5);
 }
 
-
-/* ADDED AT THE END OF THE FILE */
-
 /* File Upload Styles */
 .file-upload-container {
-    margin-top: 0.5rem;
-    display: flex;
-    flex-direction: column;
-    gap: 0.75rem;
+  margin-top: 0.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
 }
 
 .file-upload-input {
-    display: none;
+  display: none;
 }
 
 .file-upload-label {
-    width: 100%;
-    text-align: center;
+  width: 100%;
+  text-align: center;
+}
+
+.file-upload-label-small {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text-secondary);
+  font-size: 0.875rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  text-decoration: none;
+}
+
+.file-upload-label-small:hover {
+  background: var(--bg-tertiary);
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.file-upload-label-small svg {
+  width: 16px;
+  height: 16px;
 }
 
 .file-list {
-    display: flex;
-    flex-direction: column;
-    gap: 0.5rem;
-    max-height: 150px;
-    overflow-y: auto;
-    padding-right: 5px; /* for scrollbar */
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  max-height: 150px;
+  overflow-y: auto;
+  padding-right: 5px; /* for scrollbar */
 }
 
 .file-item {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 0.5rem 0.75rem;
-    background: var(--bg-tertiary);
-    border-radius: var(--radius-sm);
-    font-size: 0.8rem;
-    color: var(--text-secondary);
-    animation: fadeIn 0.2s ease-out;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.5rem 0.75rem;
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-sm);
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  animation: fadeIn 0.2s ease-out;
 }
 
 .file-item span {
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    margin-right: 0.5rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-right: 0.5rem;
 }
 
 .file-remove-btn {
-    background: none;
-    border: none;
-    color: var(--text-muted);
-    font-size: 1rem;
-    cursor: pointer;
-    padding: 0 0.25rem;
-    line-height: 1;
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 1rem;
+  cursor: pointer;
+  padding: 0 0.25rem;
+  line-height: 1;
 }
 
 .file-remove-btn:hover {
-    color: var(--danger);
+  color: var(--danger);
 }
