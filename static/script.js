@@ -101,6 +101,8 @@ document.addEventListener("DOMContentLoaded", () => {
   let monacoEditor = null;
   let monaco = null;
   let lastScrollPosition = { lineNumber: 1, column: 1 };
+  let hasGeneratedContent = false; // Added variable to track if content has been generated
+  const mainContainer = document.querySelector(".main-container"); // Added variable for main container
 
   // --- IndexedDB Functions ---
   function initDB() {
@@ -254,15 +256,17 @@ document.addEventListener("DOMContentLoaded", () => {
   function parseFullResponse(fullText) {
     const result = { analysis: "", changes: "", instructions: "", html: "" };
     const analysisMatch = fullText.match(
-      /\[ANALYSIS\]([\s\S]*?)\[END_ANALYSIS\]/
+      /\[ANALYSIS\]([\s\S]*?)\[END_ANALYSIS\]/g
     );
-    if (analysisMatch) result.analysis = analysisMatch[1].trim();
-    const changesMatch = fullText.match(/\[CHANGES\]([\s\S]*?)\[END_CHANGES\]/);
-    if (changesMatch) result.changes = changesMatch[1].trim();
+    if (analysisMatch) result.analysis = analysisMatch[0].trim();
+    const changesMatch = fullText.match(
+      /\[CHANGES\]([\s\S]*?)\[END_CHANGES\]/g
+    );
+    if (changesMatch) result.changes = changesMatch[0].trim();
     const instructionsMatch = fullText.match(
-      /\[INSTRUCTIONS\]([\s\S]*?)\[END_INSTRUCTIONS\]/
+      /\[INSTRUCTIONS\]([\s\S]*?)\[END_INSTRUCTIONS\]/g
     );
-    if (instructionsMatch) result.instructions = instructionsMatch[1].trim();
+    if (instructionsMatch) result.instructions = instructionsMatch[0].trim();
     const htmlStartIndex = fullText.indexOf("[END_INSTRUCTIONS]");
     if (htmlStartIndex !== -1) {
       const potentialHtml = fullText
@@ -419,9 +423,16 @@ document.addEventListener("DOMContentLoaded", () => {
     handleFileSelection(e, modifyFileList)
   );
 
-  generateBtn.addEventListener("click", () => {
+  generateBtn.addEventListener("click", async () => {
     const prompt = promptInput.value.trim();
-    if (!prompt) return alert("Please enter an idea!");
+    if (!prompt) {
+      showNotification("Please enter a prompt", "error");
+      return;
+    }
+
+    hasGeneratedContent = true;
+    updateLayoutState();
+
     versionHistory = [];
     promptHistory = [];
     currentSessionId = null;
@@ -435,13 +446,20 @@ document.addEventListener("DOMContentLoaded", () => {
     if (window.innerWidth <= 768) closeSidebar();
   });
 
-  modifyBtn.addEventListener("click", () => {
-    const prompt = modificationInput.value.trim();
-    if (!prompt) return alert("Please describe your modification!");
+  modifyBtn.addEventListener("click", async () => {
+    const modification = modificationInput.value.trim();
+    if (!modification) {
+      showNotification("Please enter a modification request", "error");
+      return;
+    }
+
+    hasGeneratedContent = true;
+    updateLayoutState();
+
     const currentHtml = monacoEditor ? monacoEditor.getValue() : "";
     if (!currentHtml) return alert("There is no code to modify!");
     const formData = new FormData();
-    formData.append("prompt", prompt);
+    formData.append("prompt", modification);
     formData.append("current_code", currentHtml);
     formData.append("console_logs", consoleLogs.join("\n"));
     promptHistory.forEach((p) => formData.append("prompt_history", p));
@@ -568,21 +586,28 @@ document.addEventListener("DOMContentLoaded", () => {
     updateConsoleDisplay();
     const processedHtml = replaceAssetPathsWithBlobs(htmlContent);
 
-    const enhancedHtml = `
-      <meta name="viewport" content="width=device-width, initial-scale=1.0">
-      <style>
-        html, body { 
-          margin: 0; 
-          padding: 0; 
-          overflow-x: auto; 
-          overflow-y: auto; 
-          min-height: 100vh;
-          box-sizing: border-box;
-        }
-        * { box-sizing: border-box; }
-      </style>
-      ${consoleLoggerScript}
-      ${processedHtml}
+    const enhancedHtml = `<!DOCTYPE html>
+      <html lang="en">
+      <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <style>
+          html, body { 
+            margin: 0; 
+            padding: 0; 
+            overflow-x: auto; 
+            overflow-y: auto; 
+            min-height: 100vh;
+            box-sizing: border-box;
+          }
+          * { box-sizing: border-box; }
+        </style>
+        ${consoleLoggerScript}
+      </head>
+      <body>
+        ${processedHtml}
+      </body>
+      </html>
     `;
 
     gameIframe.srcdoc = enhancedHtml;
@@ -691,6 +716,14 @@ document.addEventListener("DOMContentLoaded", () => {
         panel.classList.add("minimized");
       }
     });
+  }
+
+  function updateLayoutState() {
+    if (hasGeneratedContent) {
+      mainContainer.classList.remove("centered");
+    } else {
+      mainContainer.classList.add("centered");
+    }
   }
 
   // --- Session, Version, and UI Initialization ---
@@ -1093,6 +1126,10 @@ document.addEventListener("DOMContentLoaded", () => {
     if (themeToggle) {
       themeToggle.addEventListener("click", toggleTheme);
     }
+  }
+
+  function showNotification(message, type) {
+    alert(message);
   }
 
   initTheme();
