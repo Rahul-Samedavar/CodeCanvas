@@ -1,18 +1,26 @@
 import os
 import asyncio
 import itertools
+import io
+import uuid
+import zipfile
 from pathlib import Path
 from typing import AsyncGenerator, List, Optional
 
 import openai
 import google.generativeai as genai
 from dotenv import load_dotenv
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Form, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, StreamingResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
+import pandas as pd
+from pypdf import PdfReader
+
+# NOTE: To support text extraction from various file types, additional libraries are required.
+# Please ensure you have `pandas`, `openpyxl`, and `pypdf` installed (`pip install pandas openpyxl pypdf`).
 
 # --- Configuration ---
 class AppSettings(BaseSettings):
@@ -41,10 +49,6 @@ try:
 except Exception as e:
     raise RuntimeError(f"FATAL: Configuration error. Is your .env file set up correctly? Details: {e}")
 
-
-# --- Model Managers (Unchanged) ---
-# This section is already generic and requires no changes.
-
 class GeminiModelManager:
     def __init__(self, config: AppSettings):
         self.model_name = config.primary_model_name
@@ -54,19 +58,19 @@ class GeminiModelManager:
         self.key_cycler = itertools.cycle(self.keys)
         self.generation_config = genai.GenerationConfig(temperature=0.7, top_p=1, top_k=1)
         print(f"Gemini Manager initialized for model: {self.model_name} with {len(self.keys)} API key(s).")
+
     async def generate_content_streaming_with_key(self, prompt: str, api_key: str) -> AsyncGenerator[str, None]:
         genai.configure(api_key=api_key)
         model = genai.GenerativeModel(self.model_name)
         print(f"[Gemini] Attempting generation with model {self.model_name} using key ending in ...{api_key[-4:]}")
+        # Note: For a true multimodal experience, you'd pass the image data here.
+        # For now, we're relying on the text description of the file.
         stream = await model.generate_content_async(prompt, stream=True, generation_config=self.generation_config)
         async for chunk in stream:
             if chunk.text:
                 yield chunk.text
         print(f"[Gemini] Successfully generated response with key ending in ...{api_key[-4:]}")
-    async def generate_content_streaming(self, prompt: str) -> AsyncGenerator[str, None]:
-        api_key = next(self.key_cycler)
-        async for chunk in self.generate_content_streaming_with_key(prompt, api_key):
-            yield chunk
+    
     async def try_all_keys_streaming(self, prompt: str) -> AsyncGenerator[str, None]:
         last_exception = None
         for i, api_key in enumerate(self.keys):
@@ -124,68 +128,82 @@ class MultiModelManager:
             yield chunk
 
 
-# --- Prompts (UPDATED FOLLOW-UP PROMPT) ---
-INSTRUCTIONS_FORMAT_V2 = (
+INSTRUCTIONS_FORMAT = (
     """
-**Output Format:**
-You MUST follow this structure precisely. Each section must be clearly marked with its start and end tag.
-1.  **[ANALYSIS]**: Explain your plan. Describe how you will approach the request and what key features or changes you will implement for this visualization or application.
-2.  **[END_ANALYSIS]**
-3.  **[CHANGES]** (For modifications only): Provide a concise bulleted list of the key changes you made to the code. If this is the first generation, write "Initial generation of the project." inside this block.
-4.  **[END_CHANGES]**
-5.  **[INSTRUCTIONS]**: Write clear 'Instructions / Notes' explaining how to use or interact with the visualization.
-6.  **[END_INSTRUCTIONS]**
-7.  **HTML Code**: Immediately after `[END_INSTRUCTIONS]`, provide the complete HTML code starting with `<!DOCTYPE html>`.
+**YOU ARE A CODE GENERATOR. YOUR SOLE TASK IS TO GENERATE A COMPLETE HTML FILE IN THE FORMAT SPECIFIED BELOW. DO NOT DEVIATE.**
+
+**CRITICAL: Response Format**
+Your entire response MUST strictly follow this structure. Do not add any extra text or explanations outside of these sections.
+
+1.  **[ANALYSIS]...[END_ANALYSIS]**: Explain your plan to generate the code.
+2.  **[CHANGES]...[END_CHANGES]**: List changes made. For the first generation, write "Initial generation."
+3.  **[INSTRUCTIONS]...[END_INSTRUCTIONS]**: Write user-facing notes about how to *interact with the final webpage*.
+4.  **HTML Code**: Immediately after `[END_INSTRUCTIONS]`, the complete HTML code MUST begin, starting with `<!DOCTYPE html>`.
+
+**CRITICAL: Asset Handling**
+- If the user provides assets (e.g., `heart.png`), you MUST reference them in your HTML using a relative path like `assets/heart.png`.
+- **DO NOT** write instructions on how to save the file or create folders. The user's environment handles this automatically. Assume the `assets` folder exists.
+
+**Here is a short example of a perfect response:**
+
+  
+
+[ANALYSIS]
+The user wants a simple red square. I will create a div and style it with CSS inside the HTML file.
+[END_ANALYSIS]
+[CHANGES]
+Initial generation.
+[END_CHANGES]
+[INSTRUCTIONS]
+This is a simple red square. There is no interaction.
+[END_INSTRUCTIONS]
+<!DOCTYPE html>
+<html>
+<head><title>Red Square</title><style>div{width:100px;height:100px;background:red;}</style></head>
+<body><div></div></body>
+</html>
+```
 """
 ).strip()
 
 PROMPT_GENERATE = (
-    """
-You are an expert web developer and designer specializing in creating interactive data visualizations, educational materials, and simple web applications. Your task is to generate a complete, single-file HTML web page based on the user's request.
+"""
+You are an expert web developer tasked with generating a complete, single-file HTML web page.
+You must adhere to the formatting rules and instructions provided below.
 
-**Core Requirements:**
-- **Single File & No External Assets:** Provide the complete project in one HTML file. All CSS in `<style>`, all JS in `<script>`.
-- **Polished & Functional:** The output must be well-designed, functional, and bug-free. Add small design touches for a better user experience.
-- **Clean Code:** Write modular, readable JavaScript with helpful comments.
-- **Responsiveness:** Ensure the content scales well to different screen sizes where applicable.
+User's Request: "{user_prompt}"
 
+File Context (assets provided by the user):
+{file_context}
 {INSTRUCTIONS_FORMAT}
 
-**User's Request:** "{user_prompt}"
-
-Generate the response now.
+Generate the complete response now.
 """
 ).strip()
 
-
 PROMPT_MODIFY = (
-    """
-You are an expert web developer. You are helping a user **improve or debug an existing web visualization or application**.
+"""
+You are an expert web developer tasked with modifying an existing HTML file based on the user's new request.
+You must adhere to the formatting rules and instructions provided below.
 
-**Conversation History:**
+Conversation History:
 {prompt_history}
 
-**Current Project Code:**
-```html
+Current Project Code:
+code Html
+IGNORE_WHEN_COPYING_START
+IGNORE_WHEN_COPYING_END
+
+    
 {current_code}
-```
 
-**Browser Console Logs (if any):**
-```
-{console_logs}
-```
+  
 
-**User's New Request:**
+User's New Request:
 "{user_prompt}"
 
-**Your Task:**
-1.  **Analyze & Plan:** Carefully consider the user's request, history, code, and logs. Explain your plan in the `[ANALYSIS]` block.
-2.  **Debug & Implement:** Fix bugs and implement the requested features.
-3.  **Summarize Changes:** Detail your modifications in a bulleted list in the `[CHANGES]` block.
-4.  **Update Instructions:** Update the 'Instructions / Notes' in the `[INSTRUCTIONS]` block.
-5.  **Provide Full Code:** Generate the complete, updated project as a single HTML file.
-6.  **Start From Scratch if required:** Incase the users modification request is completely different then you can completely change the existing code.
-
+File Context (new or existing assets provided by the user):
+{file_context}
 {INSTRUCTIONS_FORMAT}
 
 Generate the complete and updated response now.
@@ -193,30 +211,96 @@ Generate the complete and updated response now.
 ).strip()
 
 PROMPT_FOLLOW_UP = (
-    """
-You are a versatile AI assistant and expert web developer. The user has an existing web application/visualization and is asking a follow-up question about it.
-
-**User's Question:** "{user_question}"
-
-**The Current Code for Context:**
-```html
-{code_to_explain}
-```
-
-**Your Task:**
-1.  **Analyze the Request:** Understand the user's intent. Are they asking for a code explanation, a conceptual clarification, a design suggestion, or an alternative approach?
-2.  **Provide a Comprehensive Answer:** Address the user's question directly and thoroughly.
-3.  **Leverage the Code Context:** When relevant, refer to specific parts of the provided code to make your answer more concrete and helpful.
-4.  **Use Clear Formatting:** Use Markdown (code snippets using backticks ` `, bullet points, and bold text) to make your answer easy to read.
-5.  **Maintain a Helpful, Collaborative Tone:** Act as an expert partner, offering clear explanations and creative insights.
-
-Generate your helpful response now.
 """
-).strip()
+You are a versatile AI assistant and expert web developer. The user has an existing web application/visualization and is asking a follow-up question about it.
+User's Question: "{user_question}"
+The Current Code for Context:
+code Html
+IGNORE_WHEN_COPYING_START
+IGNORE_WHEN_COPYING_END
+
+    
+{code_to_explain}
+
+  
+
+Your Task:
+
+    Analyze the user's question.
+
+    Provide a comprehensive answer, using Markdown for clarity.
+
+    Refer to specific parts of the code to make your answer concrete and helpful.
+
+    Maintain a helpful, collaborative tone.
+    Generate your helpful response now.
+    """
+    ).strip()
+
+
+
+async def process_uploaded_files_for_prompt(files: List[UploadFile]) -> str:
+    """
+    Reads content from uploaded files (txt, pdf, csv, xlsx) and creates a comprehensive
+    text description for the LLM prompt.
+    """
+    if not files:
+        return "No files were provided."
+
+    file_contexts = []
+    MAX_CONTENT_LENGTH = 4000  # Truncate content to avoid huge prompts
+
+    for file in files:
+        file_description = f"--- START OF FILE: {file.filename} ---"
+        content_summary = "Content: This is a binary file (e.g., image, audio). It cannot be displayed as text but should be referenced in the code by its filename."
+        
+        file_extension = Path(file.filename).suffix.lower()
+        
+        try:
+            content_bytes = await file.read()
+            
+            # Text-based files
+            if file_extension in ['.txt', '.md', '.py', '.js', '.html', '.css', '.json']:
+                content_summary = content_bytes.decode('utf-8', errors='replace')
+            
+            # CSV
+            elif file_extension == '.csv':
+                df = pd.read_csv(io.BytesIO(content_bytes))
+                content_summary = "File content represented as CSV:\n" + df.to_csv(index=False)
+
+            # PDF
+            elif file_extension == '.pdf':
+                reader = PdfReader(io.BytesIO(content_bytes))
+                text_parts = [page.extract_text() for page in reader.pages if page.extract_text()]
+                content_summary = "Extracted text from PDF:\n" + "\n".join(text_parts)
+
+            # Excel
+            elif file_extension in ['.xlsx', '.xls']:
+                xls = pd.ExcelFile(io.BytesIO(content_bytes))
+                text_parts = []
+                for sheet_name in xls.sheet_names:
+                    df = pd.read_excel(xls, sheet_name=sheet_name)
+                    text_parts.append(f"Sheet: '{sheet_name}'\n{df.to_csv(index=False)}")
+                content_summary = "File content represented as CSV for each sheet:\n" + "\n\n".join(text_parts)
+
+            # Truncate if necessary
+            if len(content_summary) > MAX_CONTENT_LENGTH:
+                content_summary = content_summary[:MAX_CONTENT_LENGTH] + "\n... (content truncated)"
+
+        except Exception as e:
+            print(f"Could not process file {file.filename}: {e}")
+            pass  # Keep the default binary file message
+        
+        finally:
+            await file.seek(0)
+        
+        file_contexts.append(f"{file_description}\n{content_summary}\n--- END OF FILE: {file.filename} ---")
+    
+    return "The user has provided the following files. Use their content as context for your response:\n\n" + "\n\n".join(file_contexts)
 
 
 # --- FastAPI Application ---
-app = FastAPI(title="AI Web Visualization Generator", version="3.1.0")
+app = FastAPI(title="AI Web Visualization Generator", version="3.3.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -225,15 +309,6 @@ app.add_middleware(
 )
 
 model_manager = MultiModelManager(settings)
-
-class GenerateRequest(BaseModel):
-    prompt: str = Field(..., min_length=1, max_length=1000)
-
-class ModifyRequest(BaseModel):
-    prompt: str = Field(..., min_length=1, max_length=1000)
-    current_code: str = Field(..., min_length=1)
-    console_logs: str = ""
-    prompt_history: List[str] = Field(default_factory=list, description="The history of prompts for context.")
 
 class ExplainRequest(BaseModel):
     question: str = Field(..., min_length=1, max_length=1000)
@@ -253,24 +328,42 @@ async def healthz():
     return PlainTextResponse("ok")
 
 @app.post("/generate")
-async def generate_visualization(req: GenerateRequest, request: Request):
-    final_prompt = PROMPT_GENERATE.format(INSTRUCTIONS_FORMAT=INSTRUCTIONS_FORMAT_V2, user_prompt=req.prompt)
-    return StreamingResponse(model_manager.generate_content_streaming(final_prompt, request), media_type="text/plain; charset=utf-8")
-
-@app.post("/modify")
-async def modify_visualization(req: ModifyRequest, request: Request):
-    history_str = "\n".join(f"- {p}" for p in req.prompt_history) if req.prompt_history else "No history provided."
-    final_prompt = PROMPT_MODIFY.format(
-        user_prompt=req.prompt,
-        current_code=req.current_code,
-        console_logs=req.console_logs or "No console logs provided.",
-        prompt_history=history_str,
-        INSTRUCTIONS_FORMAT=INSTRUCTIONS_FORMAT_V2,
+async def generate_visualization(
+    request: Request,
+    prompt: str = Form(...),
+    files: List[UploadFile] = File([])
+):
+    file_context = await process_uploaded_files_for_prompt(files)
+    final_prompt = PROMPT_GENERATE.format(
+        INSTRUCTIONS_FORMAT=INSTRUCTIONS_FORMAT, 
+        user_prompt=prompt,
+        file_context=file_context
     )
     return StreamingResponse(model_manager.generate_content_streaming(final_prompt, request), media_type="text/plain; charset=utf-8")
 
-# UPDATED: This endpoint now uses the new, more general prompt
+@app.post("/modify")
+async def modify_visualization(
+    request: Request,
+    prompt: str = Form(...),
+    current_code: str = Form(...),
+    console_logs: str = Form(""),
+    prompt_history: List[str] = Form([]),
+    files: List[UploadFile] = File([])
+):
+    history_str = "\n".join(f"- {p}" for p in prompt_history) if prompt_history else "No history provided."
+    file_context = await process_uploaded_files_for_prompt(files)
+    final_prompt = PROMPT_MODIFY.format(
+        user_prompt=prompt,
+        current_code=current_code,
+        console_logs=console_logs or "No console logs provided.",
+        prompt_history=history_str,
+        file_context=file_context,
+        INSTRUCTIONS_FORMAT=INSTRUCTIONS_FORMAT,
+    )
+    return StreamingResponse(model_manager.generate_content_streaming(final_prompt, request), media_type="text/plain; charset=utf-8")
+
 @app.post("/explain")
+# ... (Unchanged)
 async def explain_code(req: ExplainRequest, request: Request):
     final_prompt = PROMPT_FOLLOW_UP.format(
         user_question=req.question,
@@ -279,4 +372,29 @@ async def explain_code(req: ExplainRequest, request: Request):
     return StreamingResponse(
         model_manager.generate_content_streaming(final_prompt, request),
         media_type="text/plain; charset=utf-8"
+    )
+
+@app.post("/download_zip")
+async def download_zip(
+    html_content: str = Form(...),
+    files: List[UploadFile] = File([])
+):
+    zip_buffer = io.BytesIO()
+    with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
+        # Add HTML file, ensuring it uses relative paths
+        zip_file.writestr("index.html", html_content)
+
+        # Add assets to an 'assets' folder within the zip
+        if files:
+            assets_dir_in_zip = "assets"
+            for file in files:
+                file_content = await file.read()
+                # Use the original filename provided by the client
+                zip_file.writestr(f"{assets_dir_in_zip}/{file.filename}", file_content)
+    
+    zip_buffer.seek(0)
+    return StreamingResponse(
+        zip_buffer,
+        media_type="application/zip",
+        headers={"Content-Disposition": "attachment; filename=codecanvas-project.zip"}
     )

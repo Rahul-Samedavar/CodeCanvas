@@ -4,3 +4,7 @@ python-dotenv
 openai
 pydantic-settings
 google-generativeai
+python-multipart
+pypdf
+openpyxl
+pandas
