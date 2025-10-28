@@ -1,0 +1,5 @@
+__pycache__
+env
+.env
+static/script.js.txt
+test*

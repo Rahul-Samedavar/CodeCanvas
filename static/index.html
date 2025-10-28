@@ -1,0 +1,347 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Prompt Lab - AI Code Generation Studio</title>
+    <link rel="stylesheet" href="static/style.css" />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Work+Sans:wght@400;600;700&family=Inter:wght@300;400;500;600&display=swap"
+      rel="stylesheet"
+    />
+    <link
+      rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"
+    />
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/monaco-editor@0.44.0/min/vs/loader.js"></script>
+  </head>
+  <body>
+    <!-- Header -->
+    <header class="header">
+      <div class="header-content">
+        <button class="hamburger-btn" id="hamburger-btn">
+          <span></span>
+          <span></span>
+          <span></span>
+        </button>
+
+        <div class="logo">
+          <i class="fas fa-rocket"></i>
+          <span>Prompt Lab</span>
+        </div>
+        <div class="header-actions">
+          <button class="session-btn" id="load-session-btn">
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+            >
+              <path
+                d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"
+              />
+              <polyline points="14,2 14,8 20,8" />
+              <line x1="16" y1="13" x2="8" y2="13" />
+              <line x1="16" y1="17" x2="8" y2="17" />
+              <polyline points="10,9 9,9 8,9" />
+            </svg>
+            <span>Load</span>
+          </button>
+          <button class="session-btn" id="save-session-btn">
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+            >
+              <path
+                d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"
+              />
+              <polyline points="17,21 17,13 7,13 7,21" />
+              <polyline points="7,3 7,8 15,8" />
+            </svg>
+            <span>Save</span>
+          </button>
+          <button class="theme-toggle" id="theme-toggle">
+            <i class="fas fa-moon"></i>
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <!-- Load Session Popup -->
+    <div class="session-popup hidden" id="load-session-popup">
+      <div class="popup-overlay"></div>
+      <div class="popup-content">
+        <div class="popup-header">
+          <h3><i class="fas fa-upload"></i> Load Session</h3>
+          <button class="popup-close" id="load-session-popup-close">
+            <i class="fas fa-times"></i>
+          </button>
+        </div>
+        <div class="popup-body">
+          <select id="session-select" class="select-input">
+            <option value="">No sessions found</option>
+          </select>
+          <div class="button-row">
+            <button id="load-session-action-btn" class="btn btn-primary">
+              <i class="fas fa-check"></i> Load Session
+            </button>
+            <button id="delete-session-btn" class="btn btn-destructive">
+              <i class="fas fa-trash"></i> Delete
+            </button>
+          </div>
+          <button id="new-session-btn" class="btn btn-outline">
+            <i class="fas fa-plus"></i> New Session
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Save Session Popup -->
+    <div class="session-popup hidden" id="save-session-popup">
+      <div class="popup-overlay"></div>
+      <div class="popup-content">
+        <div class="popup-header">
+          <h3><i class="fas fa-save"></i> Save Session</h3>
+          <button class="popup-close" id="save-session-popup-close">
+            <i class="fas fa-times"></i>
+          </button>
+        </div>
+        <div class="popup-body">
+            <input
+              type="text"
+              id="session-name-input"
+              class="text-input"
+              placeholder="Enter session name..."
+            />
+            <button id="save-session-action-btn" class="btn btn-accent">
+              <i class="fas fa-save"></i> Save
+            </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Main Container -->
+    <div class="main-container">
+      <div class="sidebar-overlay" id="sidebar-overlay"></div>
+
+      <aside class="sidebar" id="sidebar">
+        <div class="sidebar-content">
+          <!-- Info Panels -->
+          <div class="info-panels">
+            <details id="analysis-container" class="info-panel hidden">
+              <summary class="info-header">
+                <i class="fas fa-brain"></i>
+                <span>AI Thoughts</span>
+                <i class="fas fa-chevron-down"></i>
+              </summary>
+              <div id="ai-analysis" class="info-content auto-scroll"></div>
+            </details>
+
+            <details id="changes-container" class="info-panel hidden">
+              <summary class="info-header">
+                <i class="fas fa-list-ul"></i>
+                <span>Changes Summary</span>
+                <i class="fas fa-chevron-down"></i>
+              </summary>
+              <div id="summary-of-changes" class="info-content auto-scroll"></div>
+            </details>
+
+            <details id="instructions-container" class="info-panel hidden">
+              <summary class="info-header">
+                <i class="fas fa-lightbulb"></i>
+                <span>Instructions</span>
+                <i class="fas fa-chevron-down"></i>
+              </summary>
+              <div id="game-instructions" class="info-content auto-scroll"></div>
+            </details>
+          </div>
+
+          <!-- Loading Spinner -->
+          <div class="spinner-container hidden">
+            <div class="spinner">
+              <div></div>
+              <div></div>
+              <div></div>
+            </div>
+            <p class="spinner-text">Imagining your creation...</p>
+          </div>
+
+          <!-- Generation Panels -->
+          <div id="initial-generation" class="panel generation-panel">
+            <div class="panel-header">
+              <h3><i class="fas fa-magic"></i> Create</h3>
+            </div>
+            <div class="panel-content">
+              <textarea
+                id="prompt-input"
+                class="textarea-input"
+                placeholder="Describe your idea... e.g., A bouncing ball simulation, interactive data visualization, animated landing page..."
+              ></textarea>
+              <div class="file-upload-container">
+                <label for="generate-file-input" class="file-upload-label-small">
+                  <i class="fas fa-paperclip"></i>
+                  <span>Attach Files</span>
+                </label>
+                <input type="file" id="generate-file-input" multiple class="file-upload-input" />
+                <div id="generate-file-list" class="file-list"></div>
+              </div>
+              <button id="generate-btn" class="btn btn-primary btn-large">
+                <i class="fas fa-wand-magic-sparkles"></i>
+                Generate Code
+              </button>
+            </div>
+          </div>
+
+          <div id="modification-panel" class="panel modification-panel hidden">
+            <div class="panel-header">
+              <h3><i class="fas fa-edit"></i> Modify</h3>
+            </div>
+            <div class="panel-content">
+              <textarea
+                id="modification-input"
+                class="textarea-input"
+                placeholder="Describe your changes... e.g., Make it more colorful, add animations, change the layout..."
+              ></textarea>
+              <div class="file-upload-container">
+                <label for="modify-file-input" class="file-upload-label-small">
+                    <i class="fas fa-paperclip"></i>
+                    <span>Attach Files</span>
+                </label>
+                <input type="file" id="modify-file-input" multiple class="file-upload-input" />
+                <div id="modify-file-list" class="file-list"></div>
+              </div>
+              <div id="console-container" class="console-container hidden">
+                <label class="console-label">
+                  <i class="fas fa-terminal"></i> Console Output
+                </label>
+                <textarea id="console-output" class="console-output" readonly></textarea>
+              </div>
+              <button id="modify-btn" class="btn btn-primary">
+                <i class="fas fa-sync-alt"></i> Apply Changes
+              </button>
+            </div>
+          </div>
+        </div>
+      </aside>
+
+      <!-- Main Content -->
+      <main class="main-content">
+        <div class="content-header">
+          <div class="view-tabs">
+            <button id="toggle-preview-btn" class="tab-btn active">
+              <i class="fas fa-eye"></i>
+              <span>Live Preview</span>
+            </button>
+            <button id="toggle-code-btn" class="tab-btn">
+              <i class="fas fa-code"></i>
+              <span>Source Code</span>
+            </button>
+          </div>
+          <div class="content-actions">
+            <div id="version-history-controls" class="version-history-header-compact hidden">
+              <i class="fas fa-history"></i>
+              <select id="version-history-select" class="select-input-header"></select>
+            </div>
+            <button id="copy-code-btn" class="action-btn" title="Copy Code">
+              <i class="far fa-copy"></i>
+            </button>
+            <button id="download-btn" class="action-btn" title="Download Code">
+              <i class="fas fa-download"></i>
+            </button>
+            <button id="open-tab-btn" class="action-btn" title="Open in New Window">
+              <i class="fas fa-external-link-alt"></i>
+            </button>
+            <button id="refresh-preview-btn" class="action-btn hidden" title="Refresh Preview">
+              <i class="fas fa-sync-alt"></i>
+            </button>
+          </div>
+        </div>
+
+        <div class="content-body">
+          <div class="code-container hidden">
+            <div class="code-editor-wrapper">
+              <div id="monaco-editor" class="monaco-editor-container"></div>
+            </div>
+          </div>
+          <div class="preview-container">
+            <div class="preview-wrapper">
+              <iframe
+                id="game-iframe"
+                class="preview-iframe"
+                sandbox="allow-scripts allow-pointer-lock allow-same-origin"
+                title="Generated Visualization"
+              ></iframe>
+              <div class="preview-placeholder">
+                <div class="placeholder-content">
+                  <i class="fas fa-drafting-compass"></i>
+                  <h3>Bring Your Ideas to Life</h3>
+                  <p>
+                    Use the sidebar to describe what you want to create.
+                    The AI will generate the code for you.
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </main>
+    </div>
+
+
+    <!-- Fixed follow-up floating button -->
+    <div class="followup-float" id="followup-float">
+      <button class="followup-btn" id="followup-btn">
+        <i class="fas fa-question-circle"></i>
+      </button>
+      <div class="followup-tooltip">Ask AI</div>
+    </div>
+
+    <div class="followup-popup hidden" id="followup-popup">
+      <div class="popup-overlay"></div>
+      <div class="popup-content">
+        <div class="popup-header">
+          <h3><i class="fas fa-question-circle"></i> Ask AI</h3>
+          <button class="popup-close" id="followup-popup-close">
+            <i class="fas fa-times"></i>
+          </button>
+        </div>
+        <div class="popup-body">
+          <textarea
+            id="follow-up-input"
+            class="textarea-input"
+            placeholder="Ask about the code... e.g., How does this work? Can you explain this function?"
+          ></textarea>
+          <button id="follow-up-btn" class="btn btn-accent pulse-on-hover">
+            <i class="fas fa-paper-plane"></i> Ask Question
+          </button>
+
+          <div id="follow-up-spinner" class="spinner-container hidden">
+            <div class="spinner-small">
+              <div class="spinner-ring"></div>
+            </div>
+            <p class="spinner-text">Thinking...</p>
+          </div>
+
+          <div id="follow-up-output-container" class="follow-up-output hidden">
+            <div class="output-header">
+              <i class="fas fa-robot"></i> AI Response
+            </div>
+            <div id="follow-up-output" class="output-content"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script src="static/script.js"></script>
+  </body>
+</html>
+
+
+
