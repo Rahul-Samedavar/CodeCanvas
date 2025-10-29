@@ -1,13 +1,13 @@
-# PromptLab - AI Visual Intelligence Studio
+# CodeCanvas - AI Visual Intelligence Studio
 
-**PromptLab** is an AI-powered platform that transforms natural language ideas into **interactive visual experiences** — from dynamic data visualizations and physics-based animations to complete web interfaces.  
+**CodeCanvas** is an AI-powered platform that transforms natural language ideas into **interactive visual experiences** — from dynamic data visualizations and physics-based animations to complete web interfaces.  
 It combines **Google Gemini** and **OpenAI (via Requesty)** to understand intent, reason about visuals, and generate expressive, browser-ready applications — all in real time.
 
 ---
 
-## 🌈 What PromptLab Does
+## 🌈 What CodeCanvas Does
 
-PromptLab turns prompts into **interactive, explorable visual media** — not just static charts or generated code.  
+CodeCanvas turns prompts into **interactive, explorable visual media** — not just static charts or generated code.  
 You describe what you want to see, and it builds responsive HTML/CSS/JS visualizations that you can preview, refine, and export.
 
 Examples include:
@@ -22,7 +22,7 @@ Examples include:
 ## ✨ Core Features
 
 ### 🧠 Visual Intelligence
-- **Natural Language to Visualization** – Describe the concept; PromptLab brings it to life.  
+- **Natural Language to Visualization** – Describe the concept; CodeCanvas brings it to life.  
 - **AI-Driven Reasoning** – Combines Gemini’s contextual reasoning with OpenAI’s precision.  
 - **Prompt Iteration** – Adjust color palettes, animations, or logic through conversational refinements.  
 - **File-Aware Generation** – Automatically interprets uploaded data (CSV, Excel, PDF) for visual use.
@@ -69,8 +69,8 @@ Examples include:
 
 1. **Clone the repository**
    ```bash
-   git clone https://github.com/Rahul-Samedavar/PromptLab.git
-   cd PromptLab
+   git clone https://github.com/Rahul-Samedavar/CodeCanvas.git
+   cd CodeCanvas
    ```
 
 2. **Install dependencies**
@@ -94,7 +94,7 @@ Examples include:
    uvicorn main:app --host 0.0.0.0 --port 8000 --reload
    ```
 
-5. **Launch PromptLab**
+5. **Launch CodeCanvas**
    Visit **http://localhost:8000**
 
 ---
@@ -117,7 +117,7 @@ Assets are referenced automatically via blob URLs and packaged in downloadable p
 ## 🧱 Architecture Overview
 
 ```
-promptlab/
+CodeCanvas/
 ├── main.py              # FastAPI app and API endpoints
 ├── config.py            # Pydantic-based configuration
 ├── model_managers.py    # AI model orchestration (Gemini + Requesty)
@@ -149,7 +149,7 @@ promptlab/
 | “Create a solar system simulation with orbital paths.” | Educational physics simulation |
 | “Design an interactive color theory wheel.” | UI/UX visual tool |
 | “Make a relaxing particle animation that responds to cursor movement.” | Generative art scene |
-
+|"Create a cool breakout game. use the provided audio as BGM."| Game with Assets|
 ---
 
 ## 🔒 Security & Reliability
@@ -173,4 +173,4 @@ promptlab/
 
 ## ✨ Tagline
 
-**PromptLab** — *Where imagination becomes interactive.*
+**CodeCanvas** — *Where imagination becomes interactive.*
