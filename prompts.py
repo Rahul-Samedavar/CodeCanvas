@@ -13,7 +13,7 @@ INSTRUCTIONS_FORMAT = """
 **CRITICAL: Response Format**
 Your entire response MUST strictly follow this structure. Do not add any extra text or explanations outside of these sections.
 
-1.  **[ANALYSIS]...[END_ANALYSIS]**: Explain your plan to generate the code.
+1.  **[ANALYSIS]...[END_ANALYSIS]**: Explain your game idea and highlevel overview of how it will be implemented.
 2.  **[CHANGES]...[END_CHANGES]**: List changes made. For the first generation, write "Initial generation."
 3.  **[INSTRUCTIONS]...[END_INSTRUCTIONS]**: Write user-facing notes about how to *interact with the final webpage*.
 4.  **HTML Code**: Immediately after `[END_INSTRUCTIONS]`, the complete HTML code MUST begin, starting with `<!DOCTYPE html>`.
@@ -44,6 +44,8 @@ This is a simple red square. There is no interaction.
 PROMPT_GENERATE = """
 You are an expert web developer tasked with generating a complete, single-file HTML web page.
 You must adhere to the formatting rules and instructions provided below.
+You have creative freedom while designing and developing so make it functional, logical and maitaning asthetics but stick on to the format of response.
+
 
 User's Request: "{user_prompt}"
 
@@ -58,6 +60,7 @@ Generate the complete response now.
 PROMPT_MODIFY = """
 You are an expert web developer tasked with modifying an existing HTML file based on the user's new request.
 You must adhere to the formatting rules and instructions provided below.
+You have creative freedom while designing and developing so make it functional, logical and maitaning asthetics but stick on to the format of response.
 
 Conversation History:
 {prompt_history}
@@ -88,7 +91,7 @@ The Current Code for Context:
 
 Your Task:
 - Analyze the user's question.
-- Provide a comprehensive answer, using Markdown for clarity.
+- Provide a concise answer without markdown format.
 - Refer to specific parts of the code to make your answer concrete and helpful.
 - Maintain a helpful, collaborative tone.
 

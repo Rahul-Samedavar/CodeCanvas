@@ -5,7 +5,7 @@ It combines **Google Gemini** and **OpenAI (via Requesty)** to understand intent
 
 ---
 
-## 🌈 What CodeCanvas Does
+## ✨ What CodeCanvas Does
 
 CodeCanvas turns prompts into **interactive, explorable visual media** — not just static charts or generated code.  
 You describe what you want to see, and it builds responsive HTML/CSS/JS visualizations that you can preview, refine, and export.

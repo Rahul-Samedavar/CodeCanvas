@@ -103,6 +103,8 @@ document.addEventListener("DOMContentLoaded", () => {
   let hasGeneratedContent = false;
   const mainContainer = document.querySelector(".main-container");
 
+  let autoScrollEnabled = true;
+
   // --- IndexedDB Functions ---
   function initDB() {
     return new Promise((resolve, reject) => {
@@ -156,89 +158,126 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
-    // --- Core Application Logic ---
+  // --- Core Application Logic ---
 
-    class StreamParser {
-        constructor() {
-            this.reset();
-        }
-
-        reset() {
-            this.analysis = "";
-            this.changes = "";
-            this.instructions = "";
-            this.html = "";
-            this.currentSection = null;
-            this.buffer = ""; 
-        }
-
-        processChunk(chunk) {
-            this.buffer += chunk;
-            const lines = this.buffer.split('\n');
-            this.buffer = lines.pop(); 
-
-            for (const line of lines) {
-                const trimmedLine = line.trim();
-                
-                if (trimmedLine === '[ANALYSIS]') { this.currentSection = 'ANALYSIS'; continue; }
-                if (trimmedLine === '[END_ANALYSIS]') { this.currentSection = null; continue; }
-                if (trimmedLine === '[CHANGES]') { this.currentSection = 'CHANGES'; continue; }
-                if (trimmedLine === '[END_CHANGES]') { this.currentSection = null; continue; }
-                if (trimmedLine === '[INSTRUCTIONS]') { this.currentSection = 'INSTRUCTIONS'; continue; }
-                if (trimmedLine === '[END_INSTRUCTIONS]') { this.currentSection = 'HTML'; continue; }
-
-                switch (this.currentSection) {
-                    case 'ANALYSIS': this.analysis += line + '\n'; break;
-                    case 'CHANGES': this.changes += line + '\n'; break;
-                    case 'INSTRUCTIONS': this.instructions += line + '\n'; break;
-                    case 'HTML': this.html += line + '\n'; break;
-                    default:
-                        if (trimmedLine.startsWith('<!DOCTYPE html>') || this.currentSection === 'HTML') {
-                            this.currentSection = 'HTML';
-                            this.html += line + '\n';
-                        }
-                        break;
-                }
-            }
-        }
-        
-        /**
-         * BUGFIX: Returns the current state NON-DESTRUCTIVELY for live UI updates.
-         * It does NOT process the buffer, preventing duplication errors.
-         */
-        getCurrentState() {
-            return {
-                analysis: this.analysis.trim(),
-                changes: this.changes.trim(),
-                instructions: this.instructions.trim(),
-                html: this.cleanHtml(this.html),
-            };
-        }
-
-        /**
-         * BUGFIX: Finalizes the stream by processing the remaining buffer.
-         * This should ONLY be called once at the very end.
-         */
-        finalize() {
-            if (this.buffer) {
-                // Assume any remaining buffer content belongs to the last active section, defaulting to HTML
-                const targetSection = this.currentSection || 'HTML';
-                switch (targetSection) {
-                    case 'ANALYSIS': this.analysis += this.buffer; break;
-                    case 'CHANGES': this.changes += this.buffer; break;
-                    case 'INSTRUCTIONS': this.instructions += this.buffer; break;
-                    case 'HTML': default: this.html += this.buffer; break;
-                }
-                this.buffer = ""; // Clear the buffer after finalizing
-            }
-            return this.getCurrentState();
-        }
-
-        cleanHtml(htmlString) {
-            return htmlString.replace(/^```html\s*|\s*```$/g, "").trim();
-        }
+  class StreamParser {
+    constructor() {
+      this.reset();
     }
 
+    reset() {
+      this.analysis = "";
+      this.changes = "";
+      this.instructions = "";
+      this.html = "";
+      this.currentSection = null;
+      this.buffer = "";
+    }
+
+    processChunk(chunk) {
+      this.buffer += chunk;
+      const lines = this.buffer.split("\n");
+      this.buffer = lines.pop();
+
+      for (const line of lines) {
+        const trimmedLine = line.trim();
+
+        if (trimmedLine === "[ANALYSIS]") {
+          this.currentSection = "ANALYSIS";
+          continue;
+        }
+        if (trimmedLine === "[END_ANALYSIS]") {
+          this.currentSection = null;
+          continue;
+        }
+        if (trimmedLine === "[CHANGES]") {
+          this.currentSection = "CHANGES";
+          continue;
+        }
+        if (trimmedLine === "[END_CHANGES]") {
+          this.currentSection = null;
+          continue;
+        }
+        if (trimmedLine === "[INSTRUCTIONS]") {
+          this.currentSection = "INSTRUCTIONS";
+          continue;
+        }
+        if (trimmedLine === "[END_INSTRUCTIONS]") {
+          this.currentSection = "HTML";
+          continue;
+        }
+
+        switch (this.currentSection) {
+          case "ANALYSIS":
+            this.analysis += line + "\n";
+            break;
+          case "CHANGES":
+            this.changes += line + "\n";
+            break;
+          case "INSTRUCTIONS":
+            this.instructions += line + "\n";
+            break;
+          case "HTML":
+            this.html += line + "\n";
+            break;
+          default:
+            if (
+              trimmedLine.startsWith("<!DOCTYPE html>") ||
+              this.currentSection === "HTML"
+            ) {
+              this.currentSection = "HTML";
+              this.html += line + "\n";
+            }
+            break;
+        }
+      }
+    }
+
+    /**
+     * BUGFIX: Returns the current state NON-DESTRUCTIVELY for live UI updates.
+     * It does NOT process the buffer, preventing duplication errors.
+     */
+    getCurrentState() {
+      return {
+        analysis: this.analysis.trim(),
+        changes: this.changes.trim(),
+        instructions: this.instructions.trim(),
+        html: this.cleanHtml(this.html),
+      };
+    }
+
+    /**
+     * BUGFIX: Finalizes the stream by processing the remaining buffer.
+     * This should ONLY be called once at the very end.
+     */
+    finalize() {
+      if (this.buffer) {
+        // Assume any remaining buffer content belongs to the last active section, defaulting to HTML
+        const targetSection = this.currentSection || "HTML";
+        switch (targetSection) {
+          case "ANALYSIS":
+            this.analysis += this.buffer;
+            break;
+          case "CHANGES":
+            this.changes += this.buffer;
+            break;
+          case "INSTRUCTIONS":
+            this.instructions += this.buffer;
+            break;
+          case "HTML":
+          default:
+            this.html += this.buffer;
+            break;
+        }
+        this.buffer = ""; // Clear the buffer after finalizing
+      }
+      return this.getCurrentState();
+    }
+
+    cleanHtml(htmlString) {
+      return htmlString.replace(/^```html\s*|\s*```$/g, "").trim();
+    }
+  }
 
   async function streamResponse(url, body, targetElement) {
     setLoading(true, url);
@@ -262,7 +301,8 @@ document.addEventListener("DOMContentLoaded", () => {
         signal: abortController.signal,
       });
 
-      if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+      if (!response.ok)
+        throw new Error(`HTTP error! status: ${response.status}`);
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
 
@@ -272,32 +312,42 @@ document.addEventListener("DOMContentLoaded", () => {
         let chunk = decoder.decode(value, { stream: true });
 
         if (chunk.includes("[STREAM_RESTART]")) {
-            console.warn("Stream restart signal received.");
-            showNotification("Primary model failed; switching to fallback.", "warning");
-            parser.reset();
-            clearInfoPanels();
-            if (monacoEditor) monacoEditor.setValue("");
-            chunk = chunk.replace(/\[STREAM_RESTART\]\s*\n?/, "");
+          console.warn("Stream restart signal received.");
+          showNotification(
+            "Primary model failed; switching to fallback.",
+            "warning"
+          );
+          parser.reset();
+          clearInfoPanels();
+          if (monacoEditor) monacoEditor.setValue("");
+          chunk = chunk.replace(/\[STREAM_RESTART\]\s*\n?/, "");
         }
-        
+
         if (targetElement) {
-            targetElement.textContent += chunk;
-            targetElement.scrollTop = targetElement.scrollHeight;
+          targetElement.textContent += chunk;
+          targetElement.scrollTop = targetElement.scrollHeight;
         } else {
-            parser.processChunk(chunk);
-            // BUGFIX: Use the non-destructive getter for live updates
-            const currentData = parser.getCurrentState();
-            updateUIFromStream(currentData);
+          parser.processChunk(chunk);
+          // BUGFIX: Use the non-destructive getter for live updates
+          const currentData = parser.getCurrentState();
+          updateUIFromStream(currentData);
         }
       }
 
       if (!targetElement) {
         const prompt = isFormData ? body.get("prompt") : body.prompt;
         // BUGFIX: Call finalize() only once at the end of the stream
-        const finalData = parser.finalize(); 
-        
+        const finalData = parser.finalize();
+
         // Final UI update with the fully parsed data
-        updateUIFromStream(finalData); 
+        updateUIFromStream(finalData);
+        if (monacoEditor) {
+          const totalLines = monacoEditor.getModel().getLineCount();
+          monacoEditor.revealLineNearTop(
+            totalLines,
+            monaco.editor.ScrollType.Smooth
+          );
+        }
 
         // Update iframe and save version with the final, clean data
         updateIframe(finalData.html);
@@ -337,14 +387,25 @@ document.addEventListener("DOMContentLoaded", () => {
 
     if (instructions) {
       instructionsContainer.classList.remove("hidden");
-      gameInstructions.innerHTML = marked ? marked.parse(instructions) : instructions;
+      gameInstructions.innerHTML = marked
+        ? marked.parse(instructions)
+        : instructions;
       gameInstructions.scrollTop = gameInstructions.scrollHeight;
     }
 
-    if (html && monacoEditor && monacoEditor.getValue() !== html) {
-      const currentPosition = monacoEditor.getPosition();
-      monacoEditor.setValue(html);
-      if(currentPosition) monacoEditor.setPosition(currentPosition);
+    if (html && monacoEditor) {
+      const currentContent = monacoEditor.getValue();
+      if (html !== currentContent) {
+        const model = monacoEditor.getModel();
+
+        monacoEditor.executeEdits(null, [
+          { range: model.getFullModelRange(), text: html },
+        ]);
+
+        // --- Force scroll to bottom every time ---
+        const scrollHeight = monacoEditor.getScrollHeight();
+        monacoEditor.setScrollTop(scrollHeight);
+      }
     }
   }
 
@@ -390,7 +451,9 @@ document.addEventListener("DOMContentLoaded", () => {
     for (const assetData of assets) {
       try {
         const blob = new Blob([assetData.data], { type: assetData.type });
-        const file = new File([blob], assetData.fileName, { type: assetData.type });
+        const file = new File([blob], assetData.fileName, {
+          type: assetData.type,
+        });
         clientSideAssets.set(assetData.fileName, {
           file: file,
           blobUrl: URL.createObjectURL(blob),
@@ -463,6 +526,52 @@ document.addEventListener("DOMContentLoaded", () => {
     if (window.innerWidth <= 768) closeSidebar();
   });
 
+async function streamResponseMarkdown(url, body, targetElement) {
+  setLoading(true, url);
+  if (abortController) abortController.abort();
+  abortController = new AbortController();
+  
+  let accumulatedText = "";
+  
+  try {
+    const isFormData = body instanceof FormData;
+    const response = await fetch(url, {
+      method: "POST",
+      body: isFormData ? body : JSON.stringify(body),
+      headers: isFormData ? {} : { "Content-Type": "application/json" },
+      signal: abortController.signal,
+    });
+    if (!response.ok)
+      throw new Error(`HTTP error! status: ${response.status}`);
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    
+    // Show loading indicator while streaming
+    targetElement.innerHTML = '<div class="streaming-indicator">Receiving response...</div>';
+    
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      let chunk = decoder.decode(value, { stream: true });
+      accumulatedText += chunk;
+    }
+    
+    // Render markdown only once after all text is received
+    const md = window.markdownit();
+    targetElement.innerHTML = md.render(accumulatedText);
+    targetElement.scrollTop = targetElement.scrollHeight;
+    
+  } catch (error) {
+    if (error.name !== "AbortError") {
+      console.error("Streaming failed:", error);
+      targetElement.textContent = "Error: Could not get response.";
+    }
+  } finally {
+    setLoading(false, url);
+    abortController = null;
+  }
+}
+
   followUpBtn.addEventListener("click", () => {
     const question = followUpInput.value.trim();
     if (!question) return alert("Please ask a question!");
@@ -470,7 +579,7 @@ document.addEventListener("DOMContentLoaded", () => {
     if (!currentHtml) return alert("There is no code to ask about!");
     followUpOutputContainer.classList.remove("hidden");
     followUpOutput.innerHTML = "";
-    streamResponse(
+    streamResponseMarkdown(
       "/explain",
       { question, current_code: currentHtml },
       followUpOutput
@@ -595,7 +704,10 @@ document.addEventListener("DOMContentLoaded", () => {
 
   function setView(view) {
     if (view === "code" && monacoEditor) {
-      lastScrollPosition = monacoEditor.getPosition() || { lineNumber: 1, column: 1 };
+      lastScrollPosition = monacoEditor.getPosition() || {
+        lineNumber: 1,
+        column: 1,
+      };
     }
     previewContainer.classList.toggle("hidden", view !== "preview");
     codeContainer.classList.toggle("hidden", view === "preview");
@@ -641,11 +753,13 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   function minimizeInfoPanels() {
-    [analysisContainer, changesContainer, instructionsContainer].forEach((panel) => {
-      if (!panel.classList.contains("hidden")) {
-        panel.open = false;
+    [analysisContainer, changesContainer, instructionsContainer].forEach(
+      (panel) => {
+        if (!panel.classList.contains("hidden")) {
+          panel.open = false;
+        }
       }
-    });
+    );
   }
 
   function updateLayoutState() {
@@ -660,9 +774,18 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   function updateVersionHistoryUI() {
-    versionHistoryControls.classList.toggle("hidden", versionHistory.length === 0);
+    versionHistoryControls.classList.toggle(
+      "hidden",
+      versionHistory.length === 0
+    );
     versionHistorySelect.innerHTML = versionHistory
-      .map((version, index) => `<option value="${index}">V${index + 1}: ${version.prompt.substring(0, 50)}...</option>`)
+      .map(
+        (version, index) =>
+          `<option value="${index}">V${index + 1}: ${version.prompt.substring(
+            0,
+            50
+          )}...</option>`
+      )
       .reverse()
       .join("");
     versionHistorySelect.value = versionHistory.length - 1;
@@ -691,7 +814,9 @@ document.addEventListener("DOMContentLoaded", () => {
     promptHistory = versionHistory.slice(0, index + 1).map((v) => v.prompt);
   }
 
-  versionHistorySelect.addEventListener("change", (e) => loadVersion(Number(e.target.value)));
+  versionHistorySelect.addEventListener("change", (e) =>
+    loadVersion(Number(e.target.value))
+  );
 
   async function populateSessionDropdown() {
     try {
@@ -702,11 +827,17 @@ document.addEventListener("DOMContentLoaded", () => {
       }
       sessionSelect.innerHTML = sessions
         .sort((a, b) => new Date(b.savedAt) - new Date(a.savedAt))
-        .map((s) => `<option value="${s.id}">${s.name} - ${new Date(s.savedAt).toLocaleDateString()}</option>`)
+        .map(
+          (s) =>
+            `<option value="${s.id}">${s.name} - ${new Date(
+              s.savedAt
+            ).toLocaleDateString()}</option>`
+        )
         .join("");
     } catch (error) {
       console.error("Error loading sessions:", error);
-      sessionSelect.innerHTML = '<option value="">Error loading sessions</option>';
+      sessionSelect.innerHTML =
+        '<option value="">Error loading sessions</option>';
     }
   }
 
@@ -717,8 +848,9 @@ document.addEventListener("DOMContentLoaded", () => {
 
     try {
       saveSessionActionBtn.disabled = true;
-      saveSessionActionBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Saving...';
-      
+      saveSessionActionBtn.innerHTML =
+        '<i class="fas fa-spinner fa-spin"></i> Saving...';
+
       const assets = [];
       for (const [fileName, asset] of clientSideAssets.entries()) {
         const arrayBuffer = await asset.file.arrayBuffer();
@@ -735,7 +867,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
       await saveSessionToDB(sessionData);
       currentSessionId = sessionData.id;
-      
+
       saveSessionActionBtn.innerHTML = '<i class="fas fa-check"></i> Saved!';
       setTimeout(() => {
         closePopup(saveSessionPopup);
@@ -757,12 +889,12 @@ document.addEventListener("DOMContentLoaded", () => {
       const sessions = await getSessionsFromDB();
       const session = sessions.find((s) => s.id === Number(sessionId));
       if (!session) return alert("Session not found.");
-      
+
       versionHistory = session.history || [];
       currentSessionId = session.id;
       sessionNameInput.value = session.name;
 
-      clientSideAssets.forEach(asset => URL.revokeObjectURL(asset.blobUrl));
+      clientSideAssets.forEach((asset) => URL.revokeObjectURL(asset.blobUrl));
       clientSideAssets.clear();
       if (session.assets) {
         await deserializeAssets(session.assets);
@@ -784,7 +916,13 @@ document.addEventListener("DOMContentLoaded", () => {
 
   async function deleteSelectedSession() {
     const sessionId = sessionSelect.value;
-    if (!sessionId || !confirm("Are you sure you want to delete this session? This cannot be undone.")) return;
+    if (
+      !sessionId ||
+      !confirm(
+        "Are you sure you want to delete this session? This cannot be undone."
+      )
+    )
+      return;
     try {
       await deleteSessionFromDB(Number(sessionId));
       if (currentSessionId === Number(sessionId)) {
@@ -804,7 +942,7 @@ document.addEventListener("DOMContentLoaded", () => {
     sessionNameInput.value = "";
     promptInput.value = "";
     modificationInput.value = "";
-    clientSideAssets.forEach(asset => URL.revokeObjectURL(asset.blobUrl));
+    clientSideAssets.forEach((asset) => URL.revokeObjectURL(asset.blobUrl));
     clientSideAssets.clear();
     renderSelectedFiles(generateFileList);
     renderSelectedFiles(modifyFileList);
@@ -826,19 +964,27 @@ document.addEventListener("DOMContentLoaded", () => {
   newSessionBtn.addEventListener("click", startNewSession);
 
   // --- Popups and Mobile Menu ---
-  function openPopup(popup) { popup.classList.remove("hidden"); }
-  function closePopup(popup) { popup.classList.add("hidden"); }
-  
-  loadSessionPopupClose.addEventListener("click", () => closePopup(loadSessionPopup));
-  saveSessionPopupClose.addEventListener("click", () => closePopup(saveSessionPopup));
+  function openPopup(popup) {
+    popup.classList.remove("hidden");
+  }
+  function closePopup(popup) {
+    popup.classList.add("hidden");
+  }
+
+  loadSessionPopupClose.addEventListener("click", () =>
+    closePopup(loadSessionPopup)
+  );
+  saveSessionPopupClose.addEventListener("click", () =>
+    closePopup(saveSessionPopup)
+  );
   followupPopupClose.addEventListener("click", () => closePopup(followupPopup));
-  
+
   [loadSessionPopup, saveSessionPopup, followupPopup].forEach((popup) => {
     popup.addEventListener("click", (e) => {
       if (e.target.classList.contains("popup-overlay")) closePopup(popup);
     });
   });
-  
+
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape") {
       [loadSessionPopup, saveSessionPopup, followupPopup].forEach(closePopup);
@@ -853,7 +999,7 @@ document.addEventListener("DOMContentLoaded", () => {
     sidebar.classList.remove("open");
     sidebarOverlay.classList.remove("show");
   });
-  
+
   // --- Theme ---
   function initTheme() {
     const theme = localStorage.getItem("theme") || "dark";
@@ -872,7 +1018,8 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   function updateThemeIcon(theme) {
-    themeToggle.querySelector("i").className = theme === "dark" ? "fas fa-sun" : "fas fa-moon";
+    themeToggle.querySelector("i").className =
+      theme === "dark" ? "fas fa-sun" : "fas fa-moon";
   }
 
   function updateMonacoTheme(theme) {
@@ -880,7 +1027,7 @@ document.addEventListener("DOMContentLoaded", () => {
       monaco.editor.setTheme(theme === "dark" ? "vs-dark" : "vs");
     }
   }
-  
+
   themeToggle.addEventListener("click", toggleTheme);
 
   // --- Initialization ---
@@ -889,18 +1036,26 @@ document.addEventListener("DOMContentLoaded", () => {
       console.error("Monaco Editor loader not available.");
       return;
     }
-    require.config({ paths: { vs: "https://cdn.jsdelivr.net/npm/monaco-editor@0.44.0/min/vs" } });
+    require.config({
+      paths: { vs: "https://cdn.jsdelivr.net/npm/monaco-editor@0.44.0/min/vs" },
+    });
     require(["vs/editor/editor.main"], () => {
       monaco = window.monaco;
       const theme = localStorage.getItem("theme") || "dark";
       monacoEditor = monaco.editor.create(monacoContainer, {
-        value: "// AI code will appear here. Describe your idea to get started!",
+        value:
+          "// AI code will appear here. Describe your idea to get started!",
         language: "html",
         theme: theme === "dark" ? "vs-dark" : "vs",
         automaticLayout: true,
         minimap: { enabled: false },
         scrollBeyondLastLine: false,
         wordWrap: "on",
+      });
+
+      monacoEditor.onDidScrollChange((e) => {
+        const { scrollTop, scrollHeight, height } = e;
+        autoScrollEnabled = scrollTop + height >= scrollHeight - 50;
       });
     });
   }
@@ -919,10 +1074,10 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   followupBtn.addEventListener("click", () => openPopup(followupPopup));
-  
+
   function showNotification(message, type) {
-      // A simple alert, can be replaced with a more sophisticated notification system
-      alert(`[${type.toUpperCase()}] ${message}`);
+    // A simple alert, can be replaced with a more sophisticated notification system
+    alert(`[${type.toUpperCase()}] ${message}`);
   }
 
   initializeApp();
