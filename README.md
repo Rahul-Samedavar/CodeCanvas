@@ -1,7 +1,7 @@
 # CodeCanvas - AI Visual Intelligence Studio
 
 **CodeCanvas** is an AI-powered platform that transforms natural language ideas into **interactive visual experiences** — from dynamic data visualizations and physics-based animations to complete web interfaces.  
-It combines **Google Gemini** and **OpenAI (via Requesty)** to understand intent, reason about visuals, and generate expressive, browser-ready applications — all in real time.
+It combines **Google Gemini** to understand intent, reason about visuals, and generate expressive, browser-ready applications — all in real time.
 
 ---
 
@@ -46,7 +46,6 @@ Examples include:
 ### Backend
 - **FastAPI** – High-performance Python framework.  
 - **Google Generative AI (Gemini)** – Primary model for reasoning and generation.  
-- **OpenAI (via Requesty)** – Secondary fallback for robustness.  
 - **Pydantic** – For configuration and validation.  
 - **File Processing Engine** – Handles PDF, CSV, and Excel parsing.  
 - **CORS-Enabled** – Safe and cross-origin ready.
@@ -134,10 +133,9 @@ CodeCanvas/
 ```
 
 ### AI Execution Flow
-1. **Primary reasoning** via Google Gemini for understanding and generation.  
-2. **Fallback handling** via OpenAI (Requesty) if Gemini fails or times out.  
-3. **Adaptive prompt construction** for structured visual outputs.  
-4. **Safe rendering sandbox** ensures browser isolation.
+1. **AI reasoning** via Google Gemini for understanding and generation.  
+2. **Adaptive prompt construction** for structured visual outputs.  
+3. **Safe rendering sandbox** ensures browser isolation.
 
 ---
 
